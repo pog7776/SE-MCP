@@ -214,14 +214,26 @@ Client config (README):
 
 0. ✅ **Groundwork**: `git init` + `.gitignore`. Install `ilspycmd`, decompile the SE DLLs into `ref/decompiled/`. Install `uv` and Pulsar. Hello-world plugin logs to the SE log (verified in-game).
 1. ✅ **Skeleton**: Loader + Host + Core, TCP + auth, `ping`, `debug.reload` + auto-reload on build, `net48` + `net9.0` (Legacy + Interim). Python `se_status`. Verify end-to-end from Claude Code and from `npx @modelcontextprotocol/inspector`.
-2. ✅ **See the world**: `session.info`, `player.context`, `grids.list`, `grid.get`, `blocks.list`, `block.get`, `groups.list`, `character.status`, `inventory.get`, and screenshots (window capture first, in-engine next). Matching tools, name resolution, the current-grid default. (Screenshots are window capture via PrintWindow. In-engine capture with hideHud is still to do.)
+2. ✅ **See the world**: `session.info`, `player.context`, `grids.list`, `grid.get`, `blocks.list`, `block.get`, `groups.list`, `character.status`, `inventory.get`, and screenshots (window capture first, in-engine next). Matching tools, name resolution, the current-grid default. (Screenshots are window capture via PrintWindow. In-engine capture comes in M6.)
 3. ✅ **Control**: `block.action`, `block.set_property`, set name/custom data, group actions, `notify`, `readOnly`, access + range checks, `production.get`.
 4. **Programmable blocks**: get/set code, recompile, run, output, the primer. Loop test: push an Echo script, read the output, break it, read the compile error, fix it.
 5. **Autopilot + GPS**: `rc.fly_to` / `rc.stop`, GPS list/add/remove.
-6. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
-7. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game. See below.
+6. **Vision**: see through the ship's camera blocks, and in-engine screenshots. See below.
+7. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
+8. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game. See below.
 
-### M7: Companion
+### M6: Vision
+
+Goal: let the assistant look through any camera block on a usable grid, not just at the player's screen.
+
+- **`camera.list`** (Core, ModAPI): camera blocks on a grid with name, position/direction, whether one is active, raycast range available.
+- **`camera.view`** (host-only): switch the player's view to a camera (`MyCameraBlock.RequestSetView()`, the same path as the terminal's "View" button), wait a few frames for it to render, capture with `MyRenderProxy.TakeScreenshot` (option to hide HUD sprites), then restore the previous view (`OnExitView()` / back to the character or cockpit). The player sees a brief switch; keep it as short as possible and skip it if the player is piloting at speed unless asked. Return the image as base64 (downscaled JPEG), or write a temp file that Python reads. Verify how `TakeScreenshot` reports completion (it's asynchronous: poll for the file).
+- **`camera.raycast`** (Core, ModAPI `IMyCameraBlock.Raycast`): what a camera sees along its axis or toward a point, as `MyDetectedEntityInfo` (name, type, relation, distance, hit position). Needs `EnableRaycast`; range charges over time (`AvailableScanRange`).
+- **In-engine `screenshot`** (host-only): same capture without switching views, with `hideHud`, replacing or complementing the Python window capture (works when the game is minimized or in exclusive fullscreen).
+- **MCP tools:** `list_cameras(grid)`, `camera_view(camera, hide_hud=False)` returning an image, `camera_scan(camera, distance)`, and `screenshot(hide_hud=False)`.
+- **Multiplayer note:** switching views and taking screenshots are client-local and don't affect other players.
+
+### M8: Companion
 
 Goal: chat with the assistant from inside the game, privately, and have it speak up on its own when something needs attention.
 
@@ -240,6 +252,6 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 
 - Workshop-mod host (file-polling transport over Core) for a no-Pulsar install.
 - Torch/dedicated-server host with per-player auth.
-- Camera/sensor raycasts, connector/merge docking helpers, inventory transfer, assembler queueing.
+- Sensor blocks, connector/merge docking helpers, inventory transfer, assembler queueing.
 - `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only.
 - Optional antenna-link requirement for remote access (`requireAntennaLink`).
