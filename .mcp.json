@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "space-engineers": {
+      "command": "C:/Users/jackc/AppData/Roaming/Python/Python311/Scripts/uv.exe",
+      "args": ["--directory", "S:/Dev/SpaceEngineers/SE-MCP/server", "run", "se-mcp"]
+    }
+  }
+}

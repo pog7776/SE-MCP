@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SEMcp.Host</AssemblyName>
+    <RootNamespace>SEMcp.Host</RootNamespace>
+    <AssemblyVersion>0.1.$(SEMcpBuildStamp)</AssemblyVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\core\SEMcp.Core.csproj" />
+    <!-- Contracts only; the loader is already in the game when the host runs. -->
+    <ProjectReference Include="..\SEMcp.Loader\SEMcp.Loader.csproj" Private="false" />
+  </ItemGroup>
+
+  <!-- The loader watches this folder and hot-reloads Host + Core when they change. -->
+  <Target Name="DeployHost" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(TargetFramework)' != ''">
+    <ItemGroup>
+      <HostFiles Include="$(OutDir)SEMcp.Core.dll;$(OutDir)SEMcp.Core.pdb;$(OutDir)SEMcp.Host.pdb" />
+    </ItemGroup>
+    <MakeDir Directories="$(SEMcpHostRoot)\$(TargetFramework)" />
+    <!-- Host.dll goes last: the loader reloads after the files settle, but Core first avoids a half-new pair. -->
+    <Copy SourceFiles="@(HostFiles)" DestinationFolder="$(SEMcpHostRoot)\$(TargetFramework)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SEMcpHostRoot)\$(TargetFramework)" />
+  </Target>
+</Project>

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SEMcp.Core</AssemblyName>
+    <RootNamespace>SEMcp.Core</RootNamespace>
+    <AssemblyVersion>0.1.$(SEMcpBuildStamp)</AssemblyVersion>
+  </PropertyGroup>
+  <!-- Rule: Core uses ModAPI interfaces only (no reflection, threads, IO or transport), so it can move to other hosts. -->
+</Project>

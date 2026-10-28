@@ -2,16 +2,45 @@
   <PropertyGroup>
     <!-- Folder containing SpaceEngineers.exe. Override with: dotnet build -p:SEBin=... -->
     <SEBin Condition="'$(SEBin)' == ''">S:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64</SEBin>
-    <TargetFramework>net48</TargetFramework>
+    <!-- net48 = Pulsar Legacy (.NET Framework), net9.0 = Pulsar Interim (.NET 10 runtime) -->
+    <TargetFrameworks>net48;net9.0</TargetFrameworks>
     <PlatformTarget>x64</PlatformTarget>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <ImplicitUsings>disable</ImplicitUsings>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Version>0.1.0</Version>
+    <!-- Hot-reloaded assemblies (Host, Core) need a new identity on every build: .NET Framework caches
+         dependency binding by name + version, so a reloaded Host would otherwise get the previous Core.
+         0.1.<days since 2026-01-01>.<seconds of day / 2> -->
+    <SEMcpBuildStamp>$([System.DateTime]::UtcNow.Subtract($([System.DateTime]::Parse('2026-01-01'))).Days).$([System.Convert]::ToInt32($([MSBuild]::Divide($([System.DateTime]::UtcNow.TimeOfDay.TotalSeconds), 2))))</SEMcpBuildStamp>
+
+    <!-- Where the reloadable Host + Core DLLs are deployed; the loader reads them from here. -->
+    <SEMcpHostRoot Condition="'$(SEMcpHostRoot)' == ''">$(APPDATA)\SpaceEngineers\SEMcp\host</SEMcpHostRoot>
+    <!-- Pulsar's install folder (loads precompiled plugins from <flavour>\Local). -->
+    <PulsarDir Condition="'$(PulsarDir)' == ''">$(APPDATA)\Pulsar</PulsarDir>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Lets the SDK build net48 without the targeting pack installed. -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Game assemblies: never copied, always taken from the game at runtime. -->
+  <ItemGroup>
+    <Reference Include="VRage" HintPath="$(SEBin)\VRage.dll" Private="false" />
+    <Reference Include="VRage.Library" HintPath="$(SEBin)\VRage.Library.dll" Private="false" />
+    <Reference Include="VRage.Game" HintPath="$(SEBin)\VRage.Game.dll" Private="false" />
+    <Reference Include="VRage.Math" HintPath="$(SEBin)\VRage.Math.dll" Private="false" />
+    <Reference Include="Sandbox.Common" HintPath="$(SEBin)\Sandbox.Common.dll" Private="false" />
+    <Reference Include="Sandbox.Game" HintPath="$(SEBin)\Sandbox.Game.dll" Private="false" />
+  </ItemGroup>
+  <!-- .NET Framework has no inbox System.Text.Json; use the copy the game ships. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="System.Text.Json" HintPath="$(SEBin)\System.Text.Json.dll" Private="false" />
+    <Reference Include="System.Memory" HintPath="$(SEBin)\System.Memory.dll" Private="false" />
+    <Reference Include="System.Threading.Tasks.Extensions" HintPath="$(SEBin)\System.Threading.Tasks.Extensions.dll" Private="false" />
+    <Reference Include="Microsoft.Bcl.AsyncInterfaces" HintPath="$(SEBin)\Microsoft.Bcl.AsyncInterfaces.dll" Private="false" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
 </Project>

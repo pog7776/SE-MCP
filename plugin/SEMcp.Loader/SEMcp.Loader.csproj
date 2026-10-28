@@ -2,21 +2,17 @@
   <PropertyGroup>
     <AssemblyName>SEMcp.Loader</AssemblyName>
     <RootNamespace>SEMcp.Loader</RootNamespace>
-    <Version>0.0.1</Version>
+    <!-- The loader can't be hot-reloaded; keep it small and change it rarely. -->
+    <Version>0.1.0</Version>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Reference Include="VRage" HintPath="$(SEBin)\VRage.dll" Private="false" />
-    <Reference Include="VRage.Library" HintPath="$(SEBin)\VRage.Library.dll" Private="false" />
-    <Reference Include="Sandbox.Game" HintPath="$(SEBin)\Sandbox.Game.dll" Private="false" />
-  </ItemGroup>
-
-  <!-- Pulsar loads precompiled plugins from <PulsarDir>\Legacy\Local. Skipped if SE has the DLL locked. -->
+  <!-- Pulsar loads precompiled plugins from <PulsarDir>\<flavour>\Local. Skipped (with a warning) if SE has the DLL locked. -->
   <PropertyGroup>
-    <PulsarLocal Condition="'$(PulsarLocal)' == ''">$(APPDATA)\Pulsar\Legacy\Local</PulsarLocal>
+    <PulsarFlavour Condition="'$(TargetFramework)' == 'net48'">Legacy</PulsarFlavour>
+    <PulsarFlavour Condition="'$(TargetFramework)' != 'net48'">Interim</PulsarFlavour>
   </PropertyGroup>
-  <Target Name="DeployToPulsar" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <MakeDir Directories="$(PulsarLocal)" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PulsarLocal)" ContinueOnError="WarnAndContinue" />
+  <Target Name="DeployToPulsar" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(TargetFramework)' != ''">
+    <MakeDir Directories="$(PulsarDir)\$(PulsarFlavour)\Local" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PulsarDir)\$(PulsarFlavour)\Local" ContinueOnError="WarnAndContinue" />
   </Target>
 </Project>

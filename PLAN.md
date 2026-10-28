@@ -9,11 +9,13 @@ Let an AI assistant (over MCP) see and control the player's ships, stations and 
 | Item | Value |
 |---|---|
 | Game | SE 1.210.014, `S:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64` |
-| Runtime | .NET Framework 4.8 (game), x64 |
-| .NET SDKs | 5–9 installed (SDK-style csproj targeting `net48` works) |
+| Runtime | .NET Framework 4.8 via Pulsar `Legacy.exe`, or .NET 10 via Pulsar `Interim.exe`. We build `net48` + `net9.0` for both |
+| .NET SDKs | 5–9 installed (no .NET 10 SDK. The `net9.0` build runs on the .NET 10 runtime) |
 | Python | 3.11.9 at `%LOCALAPPDATA%\Programs\Python\Python311` (the `python` on PATH is the Store stub) |
-| JSON in Bin64 | `System.Text.Json.dll` is shipped. **Newtonsoft.Json is not.** |
-| To install | Pulsar, `uv`, `ilspycmd` (`dotnet tool install -g ilspycmd`) |
+| JSON in Bin64 | `System.Text.Json.dll` 8.0 (+ deps) is shipped. **Newtonsoft.Json is not.** |
+| Pulsar | v2.4.3 at `%AppData%\Pulsar`. Local DLLs go in `<Legacy\|Interim>\Local`, enabled via Plugins → **+** |
+| Tools | `uv` 0.13 (`%AppData%\Python\Python311\Scripts`, not on PATH), `ilspycmd` 9.1.0.7988 (latest needs .NET 10 SDK) |
+| MCP SDK | `mcp` 2.x: `FastMCP` is now `mcp.server.mcpserver.MCPServer`, and pydantic fields are snake_case |
 
 ## Architecture
 
@@ -71,7 +73,7 @@ SE-MCP/
     SEMcp.Host/                         # TCP server, game-thread queue, config, host-only methods
   server/
     pyproject.toml                      # uv; deps: mcp, pydantic, mss, pywin32 (or ctypes)
-    se_mcp/ __main__.py bridge.py tools.py format.py resolve.py screenshot.py primer.md
+    src/se_mcp/ __main__.py bridge.py tools.py format.py resolve.py screenshot.py primer.md
     tests/ fake_bridge.py test_tools.py
 ```
 
@@ -174,7 +176,7 @@ Every handler catches exceptions and returns `game_error`. The `Update()` drain 
 
 ## Part 2: Python MCP server
 
-- `uv` project, Python 3.11+, official `mcp` SDK (`FastMCP`), stdio transport. Check the current SDK API before writing tools.
+- `uv` project (`server/src/se_mcp`), Python 3.11+, official `mcp` SDK 2.x (`MCPServer`), stdio transport. Check the installed SDK's API before writing tools.
 - `bridge.py`: asyncio TCP client, auth on connect, auto-reconnect with backoff, id → future map, 10 s default timeout. When the game is down, tools say "Space Engineers isn't running or the plugin isn't loaded."
 - `resolve.py`: grid/block names → ids. Fuzzy match. "Ambiguous: did you mean …". Defaults to the **current grid** from `player.context` when `grid` is omitted.
 - `screenshot.py`: returns an MCP image. Uses the plugin's `screenshot` if available, else captures the SE window (borderless/windowed. Exclusive fullscreen may return black). Downscale to ~1280 px wide.
@@ -210,8 +212,8 @@ Client config (README):
 
 ## Milestones
 
-0. **Groundwork**: `git init` + `.gitignore`. Install `ilspycmd`, decompile the SE DLLs into `ref/decompiled/`. Install `uv` and Pulsar. Confirm Pulsar's dev-folder workflow with a hello-world plugin that logs to the SE log.
-1. **Skeleton**: Loader + Host + Core, TCP + auth, `ping`, `debug.reload`. Python `se_status`. Verify end-to-end from Claude Code and from `npx @modelcontextprotocol/inspector`.
+0. ✅ **Groundwork**: `git init` + `.gitignore`. Install `ilspycmd`, decompile the SE DLLs into `ref/decompiled/`. Install `uv` and Pulsar. Hello-world plugin logs to the SE log (verified in-game).
+1. **Skeleton**: Loader + Host + Core, TCP + auth, `ping`, `debug.reload` + auto-reload on build, `net48` + `net9.0` (Legacy + Interim). Python `se_status`. Verify end-to-end from Claude Code and from `npx @modelcontextprotocol/inspector`.
 2. **See the world**: `session.info`, `player.context`, `grids.list`, `grid.get`, `blocks.list`, `block.get`, `groups.list`, `character.status`, `inventory.get`, and screenshots (window capture first, in-engine next). Matching tools, name resolution, the current-grid default.
 3. **Control**: `block.action`, `block.set_property`, set name/custom data, group actions, `notify`, `readOnly`, access + range checks, `production.get`.
 4. **Programmable blocks**: get/set code, recompile, run, output, the primer. Loop test: push an Echo script, read the output, break it, read the compile error, fix it.
