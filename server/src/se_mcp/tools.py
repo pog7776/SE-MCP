@@ -249,6 +249,17 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         await bridge.call("notify", params)
         return "Shown in chat." if chat else "Shown on the HUD."
 
+    @tool
+    async def align_to_sun(grid: str | None = None, max_rpm: float = 1.0, force: bool = False) -> str:
+        """Rotate a ship (using gyro overrides) so its solar panels face the sun, then release the gyros.
+
+        Takes a little time: a short test spin, then a slow turn (max_rpm). Refuses in natural gravity unless
+        force=True, since turning a landed ship can tip it over. The player in the ship will feel it turn."""
+        from .steering import align_to_sun as align
+
+        target = await resolve.grid(bridge, grid)
+        return await align(bridge, target["id"], max_rpm=max_rpm, force=force)
+
     @server.tool()
     async def screenshot(max_width: int = 1280) -> Image | str:
         """See what the player sees: a screenshot of the Space Engineers window (works while it's covered)."""

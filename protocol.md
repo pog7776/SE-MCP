@@ -101,3 +101,14 @@ These write to the game, so they all fail with `read_only` when `readOnly` is on
 | `block.set_name` | `blockId`, `value` | `before`, `after` |
 | `block.set_custom_data` | `blockId`, `value` | `block`, `beforeLength`, `afterLength` |
 | `notify` | `text`, `kind?` (`hud` default, or `chat`), `durationMs?` (hud, 500–60000, default 5000), `font?`, `sender?` (chat, default "Claude") | `shown`, `kind` |
+
+## Host-only methods
+
+These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host/HostMethods.cs` rather than Core.
+
+| Method | Params | Returns |
+|---|---|---|
+| `sun.info` | `gridId?` | `sunDirection` (unit vector toward the sun, `[x,y,z]`). With `gridId`, `panels[]` for every solar panel in the construct: `id`, `name`, `normal` (world), `twoSided`, `exposure` (0–1, the game's own formula: `dot(normal, sunDirection)`), `maxOutputMW` (definition), `currentMaxMW` (what it can make now, including shadowing) |
+| `grid.motion` | `gridId` | `isStatic`, `gravityG` (natural gravity), `forward`/`up`/`right` (world unit vectors), `angularVelocity` (rad/s), `linearVelocity` (m/s), `gyros[]`: `id`, `name`, `forward`/`up`/`right`, `overriding`, `working` |
+
+Gyro override properties (`Override`, `Pitch`, `Yaw`, `Roll` in RPM) are set with `block.set_property`. Their sign conventions relative to the gyro's axes aren't obvious, so the Python `steering` module measures them with a short test spin before turning.

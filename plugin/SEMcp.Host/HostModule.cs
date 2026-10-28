@@ -39,6 +39,8 @@ namespace SEMcp.Host
                 Log = message => context.Log(message),
             });
 
+            HostMethods.Register(dispatcher);
+
             server = new TcpServer(config.Port, config.Token, Handle, Log);
             server.Start();
         }
