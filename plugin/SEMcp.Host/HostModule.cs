@@ -36,6 +36,7 @@ namespace SEMcp.Host
                 IsSessionReady = () => MySession.Static?.Ready == true,
                 MaxRangeMeters = config.MaxRangeMeters,
                 ReadOnly = config.ReadOnly,
+                Log = message => context.Log(message),
             });
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);

@@ -22,6 +22,8 @@ namespace SEMcp.Core
             new BlockService(this, access).Register();
             new InventoryService(this, access).Register();
             new PlayerService(this, access).Register();
+            new ControlService(this, access).Register();
+            new ProductionService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)
@@ -54,6 +56,12 @@ namespace SEMcp.Core
         {
             if (!Context.IsSessionReady())
                 throw new RpcException(ErrorKind.NoSession, "No world is loaded");
+        }
+
+        public void RequireWritable()
+        {
+            if (Context.ReadOnly)
+                throw new RpcException(ErrorKind.ReadOnly, "The plugin is in read-only mode (readOnly in config.json)");
         }
     }
 }

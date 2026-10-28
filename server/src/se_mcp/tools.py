@@ -154,6 +154,101 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         """The player's suit: health, energy, oxygen, hydrogen, jetpack, helmet, gravity, outside air."""
         return fmt.suit(await bridge.call("character.status"))
 
+    @tool
+    async def production(grid: str | None = None) -> str:
+        """Assemblers, refineries and survival kits on a ship: producing or not, queues, input/output fill."""
+        target = await resolve.grid(bridge, grid)
+        return fmt.production(await bridge.call("production.get", {"gridId": target["id"]}))
+
+    # --- Control. These change the game like a player using the terminal would. ---
+
+    @tool
+    async def block_action(block: str, action: str, grid: str | None = None) -> str:
+        """Run a terminal action on one block, e.g. OnOff_On, OnOff_Off, Lock, Unlock, ShootOnce, Open_On.
+
+        inspect_block lists a block's actions. block: name or id; grid: default current ship."""
+        target = await resolve.block(bridge, block, grid)
+        result = await bridge.call("block.action", {"blockId": target["id"], "action": action})
+        return fmt.change_result(result, action)
+
+    @tool
+    async def group_action(group: str, action: str, grid: str | None = None) -> str:
+        """Run a terminal action on every block in a block group (see list_groups)."""
+        target = await resolve.grid(bridge, grid)
+        result = await bridge.call("block.action", {"gridId": target["id"], "group": group, "action": action})
+        return fmt.change_result(result, action)
+
+    @tool
+    async def set_block_property(block: str, property: str, value: str | float | bool, grid: str | None = None) -> str:
+        """Set a terminal property, e.g. Override (thrust %), Velocity (rotor), Radius, Color "#FF8800".
+
+        inspect_block lists properties with their types. Numbers are clamped to the block's limits."""
+        target = await resolve.block(bridge, block, grid)
+        result = await bridge.call("block.set_property", {"blockId": target["id"], "property": property, "value": value})
+        return fmt.change_result(result, f"set {property}")
+
+    @tool
+    async def toggle_blocks(
+        on: bool,
+        grid: str | None = None,
+        name_contains: str | None = None,
+        group: str | None = None,
+        type: str | None = None,
+    ) -> str:
+        """Turn several blocks on or off at once, chosen by name_contains, group and/or type (at least one)."""
+        if not (name_contains or group or type):
+            return "Give at least one of name_contains, group or type, so this doesn't switch the whole ship."
+        target = await resolve.grid(bridge, grid)
+        params: dict[str, Any] = {"gridId": target["id"], "limit": 1000}
+        for key, value in (("nameContains", name_contains), ("group", group), ("type", type)):
+            if value:
+                params[key] = value
+        blocks = (await bridge.call("blocks.list", params))["blocks"]
+
+        action = "OnOff_On" if on else "OnOff_Off"
+        changed, unchanged, failed = [], [], []
+        for b in blocks:
+            if b.get("enabled") is None or not b.get("accessible", True):
+                failed.append(f"{b['name']} (can't be switched)")
+            elif b["enabled"] == on:
+                unchanged.append(b["name"])
+            else:
+                try:
+                    await bridge.call("block.action", {"blockId": b["id"], "action": action})
+                    changed.append(b["name"])
+                except BridgeError as e:
+                    failed.append(f"{b['name']} ({e})")
+        state = "on" if on else "off"
+        lines = [f"Turned {state}: {', '.join(changed) if changed else 'nothing'}"]
+        if unchanged:
+            lines.append(f"Already {state}: {', '.join(unchanged)}")
+        if failed:
+            lines.append(f"Skipped: {', '.join(failed)}")
+        if not blocks:
+            lines = ["No blocks matched."]
+        return "\n".join(lines)
+
+    @tool
+    async def rename_block(block: str, new_name: str, grid: str | None = None) -> str:
+        """Rename a block (its terminal name)."""
+        target = await resolve.block(bridge, block, grid)
+        result = await bridge.call("block.set_name", {"blockId": target["id"], "value": new_name})
+        return f"Renamed '{result['before']}' to '{result['after']}'."
+
+    @tool
+    async def set_custom_data(block: str, data: str, grid: str | None = None) -> str:
+        """Replace a block's CustomData text (often used to configure scripts). Read it first with inspect_block."""
+        target = await resolve.block(bridge, block, grid)
+        result = await bridge.call("block.set_custom_data", {"blockId": target["id"], "value": data})
+        return f"CustomData of '{result['block']}' set ({result['beforeLength']} -> {result['afterLength']} chars)."
+
+    @tool
+    async def say(text: str, chat: bool = False, seconds: float = 5) -> str:
+        """Show the player a message in-game: a HUD notification (default) or a chat line (chat=True)."""
+        params: dict[str, Any] = {"text": text, "kind": "chat" if chat else "hud", "durationMs": int(seconds * 1000)}
+        await bridge.call("notify", params)
+        return "Shown in chat." if chat else "Shown on the HUD."
+
     @server.tool()
     async def screenshot(max_width: int = 1280) -> Image | str:
         """See what the player sees: a screenshot of the Space Engineers window (works while it's covered)."""

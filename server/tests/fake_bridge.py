@@ -147,7 +147,41 @@ def default_handlers(session_loaded: bool = True, controlling: bool = True) -> d
             "position": {"x": 1, "y": 2, "z": 3}, "speed": 4.5, "gravityG": 0, "inventoryFill": 4.4,
         }
 
+    def block_action(p: dict[str, Any]) -> dict[str, Any]:
+        need_session()
+        if p.get("group"):
+            return {"action": p["action"], "applied": ["Hydrogen Thruster", "Hydrogen Thruster 2"], "skipped": []}
+        block = next(b for b in BLOCKS if b["id"] == p["blockId"])
+        return {"action": p["action"], "applied": [block["name"]], "skipped": []}
+
+    def set_property(p: dict[str, Any]) -> dict[str, Any]:
+        need_session()
+        block = next(b for b in BLOCKS if b["id"] == p["blockId"])
+        return {"property": p["property"], "changed": [{"block": block["name"], "before": 0, "after": p["value"]}], "skipped": []}
+
+    def set_name(p: dict[str, Any]) -> dict[str, Any]:
+        block = next(b for b in BLOCKS if b["id"] == p["blockId"])
+        return {"before": block["name"], "after": p["value"]}
+
+    def notify(p: dict[str, Any]) -> dict[str, Any]:
+        need_session()
+        return {"shown": True, "kind": p.get("kind", "hud")}
+
+    def production_get(_: dict[str, Any]) -> dict[str, Any]:
+        need_session()
+        return {"blocks": [
+            {"id": "14", "name": "Basic Refinery", "type": "Refinery", "displayType": "Basic Refinery", "enabled": True,
+             "working": True, "producing": True, "mode": None, "repeating": None, "cooperative": None,
+             "queue": [{"blueprint": "IronOreToIngot", "amount": 5279.78}],
+             "input": {"fill": 74.6, "items": 3}, "output": {"fill": 27.5, "items": 4}},
+            {"id": "16", "name": "Assembler", "type": "Assembler", "displayType": "Assembler", "enabled": True,
+             "working": True, "producing": False, "mode": "Assembly", "repeating": False, "cooperative": False,
+             "queue": [{"blueprint": "SteelPlate", "amount": 100}], "input": {"fill": 0, "items": 0}, "output": {"fill": 0, "items": 0}},
+        ]}
+
     return {
+        "block.action": block_action, "block.set_property": set_property, "block.set_name": set_name,
+        "notify": notify, "production.get": production_get,
         "ping": ping, "player.context": context, "grids.list": grids_list, "grid.get": grid_get,
         "blocks.list": blocks_list, "block.get": block_get, "groups.list": groups_list,
         "inventory.get": inventory_get, "character.status": character_status,

@@ -13,5 +13,7 @@ namespace SEMcp.Core
         public Func<bool> IsSessionReady { get; set; } = () => false;
         public double MaxRangeMeters { get; set; } = 50000;
         public bool ReadOnly { get; set; }
+        // Every write is logged here (the SE log), so the player can see what the assistant changed.
+        public Action<string> Log { get; set; } = _ => { };
     }
 }

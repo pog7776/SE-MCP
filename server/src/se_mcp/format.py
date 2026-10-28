@@ -206,3 +206,50 @@ def context(ctx: dict[str, Any]) -> str:
         else:
             lines.append(f"Looking at: {look.get('name')} ({look['kind']}, {look['distance']} m)")
     return "\n".join(lines)
+
+
+def production(data: dict[str, Any]) -> str:
+    blocks = data.get("blocks") or []
+    if not blocks:
+        return "No production blocks."
+    lines = []
+    for b in blocks:
+        if not b.get("enabled"):
+            state = "OFF"
+        elif b.get("producing"):
+            state = "producing"
+        elif not b.get("queue"):
+            state = "idle, queue empty"
+        else:
+            state = "NOT producing (blocked: missing materials, full output or no power?)"
+        extra = []
+        if b.get("mode"):
+            extra.append(b["mode"].lower())
+        if b.get("repeating"):
+            extra.append("repeating")
+        if b.get("cooperative"):
+            extra.append("cooperative")
+        extra_text = f", {', '.join(extra)}" if extra else ""
+        lines.append(f"- {b['name']} ({b['displayType']}{extra_text}): {state}")
+        for item in b.get("queue") or []:
+            lines.append(f"    {item['blueprint']} x{_amount(item['amount'])}")
+        fills = [f"{label} {b[key]['fill']}%" for key, label in (("input", "input"), ("output", "output")) if b.get(key)]
+        if fills:
+            lines.append(f"    inventories: {', '.join(fills)}")
+    return "\n".join(lines)
+
+
+def change_result(result: dict[str, Any], verb: str) -> str:
+    """Summary of a block.action / block.set_property reply."""
+    lines = []
+    if "applied" in result:
+        applied = result["applied"]
+        lines.append(f"{verb} on {len(applied)} block(s)" + (f": {', '.join(applied)}" if applied else ""))
+    if "changed" in result:
+        for c in result["changed"]:
+            lines.append(f"{c['block']}: {result['property']} {c['before']} -> {c['after']}")
+        if not result["changed"]:
+            lines.append(f"Nothing changed ({verb}).")
+    for s in result.get("skipped") or []:
+        lines.append(f"Skipped {s}")
+    return "\n".join(lines)

@@ -88,3 +88,16 @@ A **construct** is a grid plus everything attached by rotors, pistons and hinges
 | `block.get` | `blockId` | `block` (as above), `gridName`, `detailedInfo`, `customInfo`, `customData`, `missingComponents`, `properties[]` (`id`, `type`, `value`: Boolean/Single/Int64/StringBuilder/Color as `#RRGGBBAA`), `actions[]` (`id`, `name`), `inventories[]` |
 | `groups.list` | `gridId` | `groups[]`: `name`, `blocks[]` (`id`, `name`). Covers the grid's whole terminal system |
 | `inventory.get` | one of `gridId` (+`includeSubgrids?`), `blockId`, `character: true` | `volumeL`, `maxVolumeL`, `fill`, `totals[]` (`type`, `subtype`, `amount`), `inventories[]` (non-empty ones, per block) |
+| `production.get` | `gridId`, `includeSubgrids?`=true | `blocks[]`: `id`, `name`, `type`, `displayType`, `enabled`, `working`, `producing`, assembler `mode`/`repeating`/`cooperative` (null otherwise), `queue[]` (`blueprint`, `amount`), `input`/`output` (`fill`, `items`) |
+
+## Control methods (M3)
+
+These write to the game, so they all fail with `read_only` when `readOnly` is on. Each change is logged to the SE log as `[SEMcp] ...`. They use the block's own terminal actions and properties, which the game syncs in multiplayer like player input. Targets follow the same access and range rules as reads.
+
+| Method | Params | Returns |
+|---|---|---|
+| `block.action` | `blockId`, or `gridId` + `group`; `action` (terminal action id, e.g. `OnOff_On`) | `action`, `applied[]` (block names), `skipped[]` (reasons). A single block without the action → `invalid_params` listing the available ids |
+| `block.set_property` | `blockId`, or `gridId` + `group`; `property`; `value` | `property`, `changed[]` (`block`, `before`, `after`), `skipped[]`. Types: Boolean (true/false, "on"/"off"), Single (number, clamped to the block's min/max), Int64, StringBuilder/String, Color (`#RRGGBB`, `#RRGGBBAA` or `{r,g,b,a?}`) |
+| `block.set_name` | `blockId`, `value` | `before`, `after` |
+| `block.set_custom_data` | `blockId`, `value` | `block`, `beforeLength`, `afterLength` |
+| `notify` | `text`, `kind?` (`hud` default, or `chat`), `durationMs?` (hud, 500–60000, default 5000), `font?`, `sender?` (chat, default "Claude") | `shown`, `kind` |
