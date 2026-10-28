@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <!-- Folder containing SpaceEngineers.exe. Override with: dotnet build -p:SEBin=... -->
+    <SEBin Condition="'$(SEBin)' == ''">S:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64</SEBin>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lets the SDK build net48 without the targeting pack installed. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

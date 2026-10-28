@@ -1,0 +1,15 @@
+# Decompiled game source (local reference only, never commit)
+ref/
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+.idea/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

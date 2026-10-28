@@ -1,0 +1,39 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "plugin", "plugin", "{7F42074E-682A-A599-6CDB-8399CB51B8EF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SEMcp.Loader", "plugin\SEMcp.Loader\SEMcp.Loader.csproj", "{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Debug|x64.Build.0 = Debug|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Debug|x86.Build.0 = Debug|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Release|x64.ActiveCfg = Release|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Release|x64.Build.0 = Release|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Release|x86.ActiveCfg = Release|Any CPU
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D083ECFC-2A6D-4F47-96C4-95E6F602FAA8} = {7F42074E-682A-A599-6CDB-8399CB51B8EF}
+	EndGlobalSection
+EndGlobal
