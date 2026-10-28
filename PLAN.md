@@ -218,20 +218,26 @@ Client config (README):
 3. ✅ **Control**: `block.action`, `block.set_property`, set name/custom data, group actions, `notify`, `readOnly`, access + range checks, `production.get`.
 4. **Programmable blocks**: get/set code, recompile, run, output, the primer. Loop test: push an Echo script, read the output, break it, read the compile error, fix it.
 5. **Autopilot + GPS**: `rc.fly_to` / `rc.stop`, GPS list/add/remove.
-6. **Vision**: see through the ship's camera blocks, and in-engine screenshots. See below.
+6. **Vision + sensing**: see through camera blocks without touching the player's view, camera raycasts, sensor blocks, in-engine screenshots. See below.
 7. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
 8. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game. See below.
 
-### M6: Vision
+### M6: Vision + sensing
 
-Goal: let the assistant look through any camera block on a usable grid, not just at the player's screen.
+Goal: let the assistant look through any camera block on a usable grid, without changing what the player sees, and read the ship's sensors.
 
-- **`camera.list`** (Core, ModAPI): camera blocks on a grid with name, position/direction, whether one is active, raycast range available.
-- **`camera.view`** (host-only): switch the player's view to a camera (`MyCameraBlock.RequestSetView()`, the same path as the terminal's "View" button), wait a few frames for it to render, capture with `MyRenderProxy.TakeScreenshot` (option to hide HUD sprites), then restore the previous view (`OnExitView()` / back to the character or cockpit). The player sees a brief switch; keep it as short as possible and skip it if the player is piloting at speed unless asked. Return the image as base64 (downscaled JPEG), or write a temp file that Python reads. Verify how `TakeScreenshot` reports completion (it's asynchronous: poll for the file).
-- **`camera.raycast`** (Core, ModAPI `IMyCameraBlock.Raycast`): what a camera sees along its axis or toward a point, as `MyDetectedEntityInfo` (name, type, relation, distance, hit position). Needs `EnableRaycast`; range charges over time (`AvailableScanRange`).
-- **In-engine `screenshot`** (host-only): same capture without switching views, with `hideHud`, replacing or complementing the Python window capture (works when the game is minimized or in exclusive fullscreen).
-- **MCP tools:** `list_cameras(grid)`, `camera_view(camera, hide_hud=False)` returning an image, `camera_scan(camera, distance)`, and `screenshot(hide_hud=False)`.
-- **Multiplayer note:** switching views and taking screenshots are client-local and don't affect other players.
+- **Offscreen camera render** (host-only, the main piece). Render the scene a second time from the camera block's view matrix into our own render target, then copy it to a CPU staging texture and encode a JPEG. Prior art: **CameraLCD Remastered** (StarCpt, MPL-2.0, on PluginHub) already does this to show cameras on LCDs. It patches `MyRender11.DrawGameScene` with Harmony and runs the render scheduler again with the camera's matrices (`CameraViewRenderer.Draw`), with fixes for occlusion and the first-person head. Study it and write our own (credit it; copying its files would bring MPL-2.0 terms with them). Notes:
+  - Render on demand only: one extra scene pass for the frame we capture, so normal play costs nothing.
+  - Rendering happens on the render thread. The request goes there from the game thread, and the frame comes back via a `TaskCompletionSource`.
+  - The Harmony patch must survive hot reload: patch with our own Harmony id and unpatch in `Stop()`, or put the tiny patch stub in the Loader and have it call into the current host.
+  - Verify Interim (.NET 10) compatibility. Render internals may differ.
+  - Fallback if offscreen render fails: briefly switch the player's view to the camera (`MyCameraBlock.RequestSetView()` / `OnExitView()`) and capture the screen.
+- **In-engine `screenshot`** (host-only): capture the main view via the same readback, with `hideHud`. It works when the game is minimized or in exclusive fullscreen. Keeps the Python window capture as a fallback.
+- **`camera.list`** (Core): camera blocks on a grid with name, direction, FOV, raycast range available.
+- **`camera.raycast`** (Core, `IMyCameraBlock.Raycast`): what a camera hits along its axis or toward a point, as `MyDetectedEntityInfo` (name, type, relation, distance, hit position). Needs `EnableRaycast`. Range charges over time (`AvailableScanRange`).
+- **`sensors.get`** (Core, `IMySensorBlock`): per sensor block on a grid: active or not, detection settings (players, ships, asteroids, owner/friendly/enemy...), field extents, and `DetectedEntities` (name, type, relation, position, distance).
+- **MCP tools:** `list_cameras(grid)`, `camera_view(camera, hide_hud=True)` returning an image, `camera_scan(camera, distance)`, `sensors(grid)`, and `screenshot(hide_hud=False)`.
+- **Multiplayer note:** rendering and screenshots are client-local and invisible to other players.
 
 ### M8: Companion
 
@@ -239,6 +245,12 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 
 - **Private chat channel.** The host hooks the game's chat-entered event (`MyAPIGateway.Utilities.MessageEntered`, verify the current signature) and catches messages with a prefix (configurable, e.g. `/ai`). It sets `sendToOthers = false` so they never reach other players, and queues them for the client. Replies use `notify` with `kind: chat`, which is shown only locally. The host must unsubscribe in `Stop()` so hot reload stays safe (an exception to the "no game events" rule, handled explicitly).
 - **Event stream.** Server→client notifications (`{"method":"event"}`, reserved in protocol.md) for chat messages and alerts: low O₂/H₂/energy, damage, power running out, docking/undocking, a production block stalling, PB errors. Thresholds go in config. The host polls cheaply on the game thread (e.g. once per second), not per frame.
+- **In-game triggers.** Let the ship itself call the AI, so players can wire it up with vanilla blocks:
+  - **Event Controller:** `IMyEventControllerBlock.ActionTriggered` (ModAPI) fires when its condition is met (tank below 10%, a door opens, a sensor trips...). Event controllers named with a tag (e.g. `[AI] Low hydrogen`) become events: "event controller 'Low hydrogen' fired". The player sets the condition in the normal terminal.
+  - **Sensor blocks:** `IMySensorBlock.StateChanged` on tagged sensors ("someone/something entered the docking zone").
+  - **Button panels and timers:** they can't send messages directly, but they can trigger a tagged event controller, or run a PB that writes a request we read.
+  - **Broadcast Controller:** it posts chat lines and can target the owner only (`BroadcastTarget.Owner`). Verify how those messages arrive client-side (whether `MessageRecieved` sees them or a patch is needed); if they're catchable, a broadcast message starting with `/ai` is handled like a player's `/ai` chat. Note that "Faction" and "Everyone" targets are visible to others.
+  - Same hot-reload rule as chat: subscribe in `Start()`, unsubscribe in `Stop()`, and re-scan tagged blocks periodically (blocks get built and removed).
 - **Background runner.** MCP tools only run while an MCP client is in a turn, so an in-game message needs something that starts a turn. A small runner process (in `server/`) listens for events and starts a Claude turn for each chat message or alert, with the same tools. Options: Claude Code headless (`claude -p` with this MCP server, runs under the user's plan), or the Claude Agent SDK (needs an API key, paid per use). Pick one when we get here. Keep a short rolling conversation so follow-ups make sense.
 - **Persona.** A configurable name and voice for the AI ("ship AI" vs "suit AI" depending on whether the player is seated), and rules for when to stay quiet.
 - **Optional voice.** Local speech-to-text for push-to-talk input and text-to-speech for replies.
@@ -252,6 +264,6 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 
 - Workshop-mod host (file-polling transport over Core) for a no-Pulsar install.
 - Torch/dedicated-server host with per-player auth.
-- Sensor blocks, connector/merge docking helpers, inventory transfer, assembler queueing.
+- Connector/merge docking helpers, inventory transfer, assembler queueing.
 - `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only.
 - Optional antenna-link requirement for remote access (`requireAntennaLink`).
