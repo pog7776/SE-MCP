@@ -219,6 +219,17 @@ Client config (README):
 4. **Programmable blocks**: get/set code, recompile, run, output, the primer. Loop test: push an Echo script, read the output, break it, read the compile error, fix it.
 5. **Autopilot + GPS**: `rc.fly_to` / `rc.stop`, GPS list/add/remove.
 6. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
+7. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game. See below.
+
+### M7: Companion
+
+Goal: chat with the assistant from inside the game, privately, and have it speak up on its own when something needs attention.
+
+- **Private chat channel.** The host hooks the game's chat-entered event (`MyAPIGateway.Utilities.MessageEntered`, verify the current signature) and catches messages with a prefix (configurable, e.g. `/ai`). It sets `sendToOthers = false` so they never reach other players, and queues them for the client. Replies use `notify` with `kind: chat`, which is shown only locally. The host must unsubscribe in `Stop()` so hot reload stays safe (an exception to the "no game events" rule, handled explicitly).
+- **Event stream.** Server→client notifications (`{"method":"event"}`, reserved in protocol.md) for chat messages and alerts: low O₂/H₂/energy, damage, power running out, docking/undocking, a production block stalling, PB errors. Thresholds go in config. The host polls cheaply on the game thread (e.g. once per second), not per frame.
+- **Background runner.** MCP tools only run while an MCP client is in a turn, so an in-game message needs something that starts a turn. A small runner process (in `server/`) listens for events and starts a Claude turn for each chat message or alert, with the same tools. Options: Claude Code headless (`claude -p` with this MCP server, runs under the user's plan), or the Claude Agent SDK (needs an API key, paid per use). Pick one when we get here. Keep a short rolling conversation so follow-ups make sense.
+- **Persona.** A configurable name and voice for the AI ("ship AI" vs "suit AI" depending on whether the player is seated), and rules for when to stay quiet.
+- **Optional voice.** Local speech-to-text for push-to-talk input and text-to-speech for replies.
 
 ## Testing
 
@@ -227,7 +238,6 @@ Client config (README):
 
 ## Later
 
-- Event stream (damage, low O₂/H₂/power, docking, PB echo changes) as notifications.
 - Workshop-mod host (file-polling transport over Core) for a no-Pulsar install.
 - Torch/dedicated-server host with per-player auth.
 - Camera/sensor raycasts, connector/merge docking helpers, inventory transfer, assembler queueing.
