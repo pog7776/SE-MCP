@@ -2,7 +2,7 @@
 
 Lets an AI assistant (over MCP) see and control your Space Engineers 1 ships, stations and suit. See [PLAN.md](PLAN.md) for the design and [protocol.md](protocol.md) for the wire protocol.
 
-Status: **M1 (skeleton)**. Hot-reloading plugin, TCP bridge with `ping`, and an MCP server with `se_status`.
+Status: **M2 (see the world)**. Ships, blocks, groups, inventories, suit, crosshair target and screenshots, all read-only. Tools: `se_status`, `list_grids`, `ship_status`, `list_blocks`, `inspect_block`, `looked_at`, `list_groups`, `inventory`, `suit_status`, `screenshot`.
 
 ```
 Claude ──MCP/stdio──▶ server/ (Python) ──TCP 127.0.0.1:8765──▶ SEMcp.Loader ─loads─▶ SEMcp.Host + SEMcp.Core (in game)
