@@ -34,6 +34,8 @@ namespace SEMcp.Host
                 GameVersion = MyFinalBuildConstants.APP_VERSION_STRING_DOTS.ToString(),
                 Runtime = RuntimeInformation.FrameworkDescription,
                 IsSessionReady = () => MySession.Static?.Ready == true,
+                MaxRangeMeters = config.MaxRangeMeters,
+                ReadOnly = config.ReadOnly,
             });
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);

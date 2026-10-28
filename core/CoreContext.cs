@@ -11,5 +11,7 @@ namespace SEMcp.Core
         public string GameVersion { get; set; }
         public string Runtime { get; set; }
         public Func<bool> IsSessionReady { get; set; } = () => false;
+        public double MaxRangeMeters { get; set; } = 50000;
+        public bool ReadOnly { get; set; }
     }
 }

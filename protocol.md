@@ -71,3 +71,20 @@ Works with or without a world loaded.
 ### `debug.reload`
 
 Answers `{"reloading": true}`, then on the next frame the plugin stops the host (closing this connection) and loads the latest Host + Core build. The Python bridge reconnects on the next call. A Release build triggers the same reload automatically.
+
+## World methods (M2)
+
+All of these need a loaded world (`no_session` otherwise). Grids and blocks are limited to what the player may use: owned by them, by their faction, or by nobody (`access_denied` otherwise), within `maxRangeMeters` (`out_of_range`). Ids are strings. Volumes are in liters, mass in kg, power in MW/MWh, percentages are 0–100.
+
+A **construct** is a grid plus everything attached by rotors, pistons and hinges (`GridLinkTypeEnum.Logical`). The **docked group** adds connector-attached grids (`Physical`). Group ids are the smallest entity id in the group.
+
+| Method | Params | Returns |
+|---|---|---|
+| `player.context` | — | `player`, `identityId`, `position`, `controlled` (`kind`, `blockId`, `blockName`, `gridId`, `gridName`, or `{kind:"Character"}`), `lookingAt` (camera ray, 200 m: `kind` grid/character/voxel/other, `distance`, and for grids `gridId`, `gridName`, `relation`, `block`), `nearestGrid` (closest usable grid within 50 m) |
+| `character.status` | — | `alive`, `health`, `energy`/`oxygen`/`hydrogen` %, `environmentOxygen` %, `jetpack`, `dampeners`, `helmet`, `lights`, `movement`, `position`, `speed`, `gravityG`, `inventoryFill` |
+| `grids.list` | `range?` (m, capped at max), `includeAll?` | `range`, `grids[]`: usable grids get `id`, `name`, `size`, `isStatic`, `blocks`, `relation`, `position`, `distance`, `speed`, `constructId`, `dockedGroupId`, `accessible:true`. With `includeAll`, others get name/size/relation/distance and `accessible:false` |
+| `grid.get` | `gridId`, `includeSubgrids?`=true | `summary` (as in `grids.list`), `grids[]` in the construct, `docked[]`, `mass`, `power` (`batteries`, `producers[]` by type), `gas` (`hydrogen`, `oxygen` tank totals), `cargo` (cargo containers only), `damage` (`count`, worst 15 `blocks[]` with `missing` components), `functionalCount`, `terminalBlocks` |
+| `blocks.list` | `gridId`, `type?`, `nameContains?`, `group?`, `includeSubgrids?`=true, `limit?`=200, `offset?` | `total`, `offset`, `blocks[]`: `id`, `name`, `type`, `subtype`, `displayType`, `gridId`, `enabled` (null if it can't be switched), `functional`, `working`, `integrity`, `accessible`. `type` matches type id, subtype or display name, case-insensitive |
+| `block.get` | `blockId` | `block` (as above), `gridName`, `detailedInfo`, `customInfo`, `customData`, `missingComponents`, `properties[]` (`id`, `type`, `value`: Boolean/Single/Int64/StringBuilder/Color as `#RRGGBBAA`), `actions[]` (`id`, `name`), `inventories[]` |
+| `groups.list` | `gridId` | `groups[]`: `name`, `blocks[]` (`id`, `name`). Covers the grid's whole terminal system |
+| `inventory.get` | one of `gridId` (+`includeSubgrids?`), `blockId`, `character: true` | `volumeL`, `maxVolumeL`, `fill`, `totals[]` (`type`, `subtype`, `amount`), `inventories[]` (non-empty ones, per block) |

@@ -16,7 +16,12 @@ namespace SEMcp.Core
         public Dispatcher(CoreContext context)
         {
             Context = context;
+            var access = new Access(this);
             new SessionService(this).Register();
+            new GridService(this, access).Register();
+            new BlockService(this, access).Register();
+            new InventoryService(this, access).Register();
+            new PlayerService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)
