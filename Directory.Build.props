@@ -34,6 +34,9 @@
     <Reference Include="VRage.Math" HintPath="$(SEBin)\VRage.Math.dll" Private="false" />
     <Reference Include="Sandbox.Common" HintPath="$(SEBin)\Sandbox.Common.dll" Private="false" />
     <Reference Include="Sandbox.Game" HintPath="$(SEBin)\Sandbox.Game.dll" Private="false" />
+    <!-- ModAPI interfaces for landing gear and other SpaceEngineers.Game blocks. -->
+    <Reference Include="SpaceEngineers.Game" HintPath="$(SEBin)\SpaceEngineers.Game.dll" Private="false" />
+    <Reference Include="SpaceEngineers.ObjectBuilders" HintPath="$(SEBin)\SpaceEngineers.ObjectBuilders.dll" Private="false" />
   </ItemGroup>
   <!-- .NET Framework has no inbox System.Text.Json; use the copy the game ships. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">

@@ -122,3 +122,10 @@ TOOLS.update({
 TOOLS.update({
     "ore_scan": Fairness("sensed", None, "the HUD's ore markers from the ship's ore detectors; never the map's voxel data"),
 })
+
+TOOLS.update({
+    "docking_status": Fairness("own", None),
+    "landing_gear": Fairness("own", "construct"),
+    "undock": Fairness("own", "construct"),
+    "dock": Fairness("own", "construct", "reads the target connector's position: fine for our own ships/stations; others need sensing"),
+})

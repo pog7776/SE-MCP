@@ -237,6 +237,17 @@ Weapons are `IMyUserControllableGun` blocks (turrets and fixed guns) and custom 
 | `ore.markers` (host) | `gridId?` (distances from that ship, and list its detectors), `limit?`=500 | `visible`, `controlling` (`name`, `grid` of the ship controller the player is in, or null), `detectors[]` (`id`, `name`, `working`, `range`, `broadcastUsingAntennas`), `markers[]` nearest first (`ore`, `material`, `position`, `distance`, `body`, `detectorId`), `total`. Reads `MyHud.OreMarkers`: only what ore detectors have reported to the player's HUD, never voxel data |
 | `laser.idle` | `blockId` | `block`, `status`. The `Idle` terminal action (drops the link) |
 
+## Docking and flight methods (M7)
+
+| Method | Params | Returns |
+|---|---|---|
+| `dock.get` | `gridId` | `gridName`, `isStatic`, `connectors[]` (`id`, `name`, `gridName`, `size`, `working`, `status` (`Unconnected`/`Connectable`/`Connected`), `other` (`id`, `name`, `gridName`, `gridId`), `position`, `forward` (the joining face), `up`, `parking`, `collectAll`, `throwOut`), `landingGear[]` (`id`, `name`, `working`, `locked`, `mode`, `autoLock`), `mergeBlocks[]` (`id`, `name`, `working`, `enabled`, `connected`). The ship's own mechanical group only |
+| `dock.connector` | `blockId`, `action` (`connect`/`disconnect`/`toggle`) | `block`, `before`, `after`. `connect` refuses when Unconnected |
+| `dock.gear` | `blockId` or `gridId`, `action` (`lock`/`unlock`/`autolock_on`/`autolock_off`) | `changed[]` (`name`, `mode`, `autoLock`) |
+| `flight.set` | `thrusters?` (`{id: fraction 0..1}`, 0 = not overriding), `gyros?` (`{id: [pitch, yaw, roll] RPM}` or `{id: null}` to release), `gridId?` with `dampeners?`, `thrustersOn?`, `release?` (drop every override on the ship) | `thrusters`, `gyros` (counts). Blocked by `allowAutopilot: false`. For closed-loop flying from the client (one call per control tick) |
+
+`grid.motion` takes `thrusters: true` to add `mass` (the ship's own, physics), `dampeners`, and `thrusters[]` (`id`, `name`, `push` (world direction it pushes the ship), `maxThrust`, `current`, `overridePercent`, `working`), all for the ship's mechanical group only.
+
 ## Toolbar and group methods (host)
 
 Game internals (ModAPI can read groups but not edit them, and can't see toolbars). Changes use the calls the game's own screens make, which sync in multiplayer.

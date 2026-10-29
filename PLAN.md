@@ -279,9 +279,10 @@ Remaining items, reordered by value for effort, quick wins first and docking las
 10b. ✅ **Radio**: what the ship or suit hears (antennas, beacons, laser antennas, relays included; speeds from two samples), the ship's own antennas and beacons (radius, broadcasting, HUD text), laser antenna links (aims both ends when both are ours; can turn the ship so the hull doesn't block it). Feeds combat: `contacts` (radio + turret targets + sensors), and signal names work as targets for `aim_turrets` and `track_target`. Later: radio *data* (IGC messages) through a relay programmable block. Known gap: `los.check` (physics + voxel raycast) said the line to one blocked laser was clear, so the game's own laser line-of-sight test sees something ours doesn't; trying another laser worked.
 10c. ✅ **Toolbars and block groups**: read and edit a ship's toolbar (cockpit/remote control/button panel slots: which block or group, which action, per page) and the player's own toolbar; create, rename, and change block groups. Lets the assistant set up a ship's controls for the player ("put the drills and the ore-detector toggle on page 2"). Toolbars are game internals (`MyToolbar`, `MyToolbarItemTerminalBlock/Group`), so host side; groups are ModAPI-reachable.
 11. ✅ **Ore detectors**: what the ship's ore detectors currently see (the HUD ore markers), as summaries or GPS points. No reading the map's voxel data directly, which would be cheating.
-12. **Docking**:
+12. ✅ **Docking** (connectors; landing on landing gear is next):
     - Read connector, merge block and landing gear status.
-    - Dock a ship myself: RC precision mode for the approach, then a final approach using gyro steering plus thruster overrides, connector lined up with connector, then Connect once the status is "Connectable".
+    - Dock a ship myself: gyro overrides hold our connector facing theirs; thruster overrides fly it along their axis (position -> velocity -> force loop over RPC); connect at "Connectable". The RC autopilot couldn't do it: it always turns its leading face toward the travel direction, so sideways corrections swing the ship.
+    - Next: land on landing gear (gear face square to a surface), and the big Red Ship onto the base (same pilot, gentler limits).
 
 ### M8: Fair play
 

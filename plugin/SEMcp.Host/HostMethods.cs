@@ -534,7 +534,36 @@ namespace SEMcp.Host
                         working = g.IsWorking,
                     })
                     .ToList(),
+                // For flying with thruster overrides (docking): only the ship itself, not ships docked to it.
+                mass = p.Bool("thrusters", false) ? ShipMass(grid) : (double?)null,
+                dampeners = p.Bool("thrusters", false) ? (bool?)ShipController(grid)?.DampenersOverride : null,
+                thrusters = !p.Bool("thrusters", false) ? null : Mechanical(grid)
+                    .SelectMany(g => g.GetFatBlocks<IMyThrust>())
+                    .Where(access.CanUse)
+                    .Select(t => new
+                    {
+                        id = Dto.Id(t.EntityId),
+                        name = t.CustomName,
+                        // Which way it pushes the ship (world space): opposite its exhaust.
+                        push = Vec(Vector3D.TransformNormal(-(Vector3D)Base6Directions.GetVector(t.Orientation.Forward), t.CubeGrid.WorldMatrix)),
+                        maxThrust = Math.Round(t.MaxEffectiveThrust, 0),
+                        current = Math.Round(t.CurrentThrust, 0),
+                        overridePercent = Math.Round(t.ThrustOverridePercentage * 100, 1),
+                        working = t.IsWorking,
+                    })
+                    .ToList(),
             };
         }
+
+        private static List<IMyCubeGrid> Mechanical(IMyCubeGrid grid) =>
+            grid.GetGridGroup(GridLinkTypeEnum.Mechanical)?.GetGrids(new List<IMyCubeGrid>()) ?? new List<IMyCubeGrid> { grid };
+
+        private static IMyShipController ShipController(IMyCubeGrid grid) =>
+            Mechanical(grid).SelectMany(g => g.GetFatBlocks<IMyShipController>()).FirstOrDefault(c => c.IsWorking);
+
+        // The ship's own mass (blocks + cargo) from physics, not counting docked ships (the controller's
+        // CalculateShipMass includes everything locked to it by connectors).
+        private static double ShipMass(IMyCubeGrid grid) =>
+            Math.Round(Mechanical(grid).Sum(g => (double)(g.Physics?.Mass ?? 0)), 0);
     }
 }

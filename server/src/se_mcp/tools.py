@@ -13,6 +13,7 @@ from mcp.server.mcpserver import Image, MCPServer
 from . import autopilot
 from . import build
 from . import combat
+from . import docking
 from . import forecast as forecast_mod
 from . import format as fmt
 from . import items as items_mod
@@ -1295,6 +1296,101 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         _, w = await _weapons(grid)
         sensed = await bridge.call("sensors.get", {"gridId": target["id"]})
         return combat.contacts_text(target.get("name") or "Ship", heard, w, sensed, include_friendly)
+
+    # --- Docking: connectors, landing gear, and flying a connector onto another. ---
+
+    @tool
+    async def docking_status(grid: str | None = None) -> str:
+        """A ship's connectors (unconnected / connectable / connected and to what), landing gear and merge blocks."""
+        target = await resolve.grid(bridge, grid)
+        return docking.status_text(await bridge.call("dock.get", {"gridId": target["id"]}))
+
+    @tool
+    async def landing_gear(action: str = "lock", block: str | None = None, grid: str | None = None) -> str:
+        """Lock or unlock landing gear / magnetic plates: action lock, unlock, autolock_on, autolock_off. One
+        block, or every gear on the ship."""
+        params: dict[str, Any] = {"action": action}
+        if block:
+            params["blockId"] = (await resolve.block(bridge, block, grid))["id"]
+        else:
+            params["gridId"] = (await resolve.grid(bridge, grid))["id"]
+        r = await bridge.call("dock.gear", params)
+        return "\n".join(f"- {g['name']}: {g['mode']}{', auto-lock' if g['autoLock'] else ''}" for g in r["changed"]) or "No landing gear."
+
+    @tool
+    async def undock(grid: str | None = None, connector: str | None = None, back_off_m: float = 0) -> str:
+        """Disconnect a ship's connector(s) (default: every connected one on the ship). back_off_m > 0 then flies
+        the ship that far straight out from the other connector, holding its orientation, and stops."""
+        target = await resolve.grid(bridge, grid)
+        status = await bridge.call("dock.get", {"gridId": target["id"]})
+        connected = [c for c in status["connectors"] if c["status"] == "Connected"
+                     and (not connector or connector.lower() in c["name"].lower())]
+        if not connected:
+            return f"{status['gridName']} isn't docked" + (f" by '{connector}'" if connector else "") + "."
+        lines = []
+        for c in connected:
+            await bridge.call("dock.connector", {"blockId": c["id"], "action": "disconnect"})
+            lines.append(f"Disconnected {c['name']} from {c['other']['name']} on {c['other']['gridName']}.")
+        if back_off_m > 0 and len(connected) == 1:
+            c = connected[0]
+            other = await bridge.call("dock.get", {"gridId": c["other"]["gridId"]})
+            far = next(x for x in other["connectors"] if x["id"] == c["other"]["id"])
+            pilot = docking.ConnectorPilot(bridge, target["id"], c["id"], far, max_accel=await _safe_accel(target["id"]))
+            try:
+                await pilot.start()
+                await pilot.hold(back_off_m + 1.8, tolerance=0.5, timeout_s=120)
+                lines.append(f"Backed off {back_off_m:g} m, holding position.")
+            except Exception as e:
+                lines.append(f"Back-off stopped: {e}")
+            finally:
+                await pilot.stop()
+        return "\n".join(lines)
+
+    async def _safe_accel(grid_id: str) -> float:
+        """Gentle acceleration: a third of the weakest direction's thrust over mass, at most 2 m/s^2."""
+        m = await bridge.call("grid.motion", {"gridId": grid_id, "thrusters": True})
+        per_dir: dict[tuple[int, ...], float] = {}
+        for t in m["thrusters"]:
+            key = tuple(round(x) for x in t["push"])
+            per_dir[key] = per_dir.get(key, 0) + t["maxThrust"]
+        weakest = min(per_dir.values()) if len(per_dir) >= 6 else 0
+        return max(0.2, min(2.0, weakest / max(m["mass"], 1) / 3)) if weakest else 0.5
+
+    @tool
+    async def dock(target: str, grid: str | None = None, connector: str | None = None, target_connector: str | None = None,
+                   approach_m: float = 20, max_speed: float = 2.0) -> str:
+        """Dock a ship onto another ship's or station's connector by flying it there: lines our connector up
+        with theirs (gyros), comes in along their connector's axis from approach_m out (thrusters), and connects
+        when it's Connectable. Picks free connectors unless named. Turns thrusters on if the
+        ship was parked with them off, and back off once docked. Keep the path clear; it doesn't steer around
+        things on the way to the approach point."""
+        ship = await resolve.grid(bridge, grid)
+        other = await resolve.grid(bridge, target)
+        mine = await bridge.call("dock.get", {"gridId": ship["id"]})
+        theirs = await bridge.call("dock.get", {"gridId": other["id"]})
+        try:
+            c = docking.pick([x for x in mine["connectors"] if x["status"] != "Connected"], connector, True, mine["gridName"])
+            # No size filter: a small-grid ship's connector can lock onto a large grid's; "Connectable" decides.
+            t = docking.pick(theirs["connectors"], target_connector, True, theirs["gridName"])
+        except ValueError as e:
+            return str(e)
+        log: list[str] = []
+        pilot = docking.ConnectorPilot(bridge, ship["id"], c["id"], t, log=log.append, max_speed=max_speed,
+                                       max_accel=await _safe_accel(ship["id"]))
+        docked = False
+        try:
+            await pilot.start()
+            await pilot.hold(approach_m, tolerance=0.5, timeout_s=300)
+            await pilot.hold(1.8, tolerance=0.1, timeout_s=180, until=lambda x: x["status"] == "Connectable")
+            r = await bridge.call("dock.connector", {"blockId": c["id"], "action": "connect"})
+            docked = r["after"] == "Connected"
+        except Exception as e:
+            return f"Docking stopped: {e}. Overrides released, dampeners on.\n" + "\n".join(log[-4:])
+        finally:
+            await pilot.stop(docked)
+        if not docked:
+            return f"Lined up but the connector didn't lock ({r['after']})."
+        return f"Docked {mine['gridName']}'s {c['name']} to {t['name']} on {theirs['gridName']}."
 
     # --- Ore detection. ---
 
