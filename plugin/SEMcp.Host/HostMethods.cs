@@ -26,6 +26,7 @@ namespace SEMcp.Host
             var access = new Access(dispatcher);
             dispatcher.Register("sun.info", p => SunInfo(access, p));
             dispatcher.Register("grid.motion", p => Motion(access, p));
+            dispatcher.Register("buildplanner.get", p => BuildPlanner(dispatcher));
         }
 
         private static readonly FieldInfo CompilerErrorsField =
@@ -34,6 +35,30 @@ namespace SEMcp.Host
         // MyProgrammableBlock.m_compilerErrors: filled by each compile (server side), shown only in the code editor.
         public static IList<string> PbCompilerErrors(Sandbox.ModAPI.IMyProgrammableBlock pb) =>
             CompilerErrorsField?.GetValue(pb) is List<string> errors ? errors.ToList() : null;
+
+        // The player's build planner (G menu: "add to build planner"): blocks they mean to build and the components
+        // each still needs. Stored on the identity, which ModAPI doesn't expose.
+        private static object BuildPlanner(Dispatcher dispatcher)
+        {
+            dispatcher.RequireSession();
+            var character = MySession.Static.LocalCharacter
+                ?? throw new RpcException(ErrorKind.NotFound, "The player has no character (dead or spectating?)");
+            return new
+            {
+                items = character.BuildPlanner.Select((item, index) => new
+                {
+                    index,
+                    block = item.BlockDefinition == null ? null : (item.BlockDefinition.DisplayNameText ?? item.BlockDefinition.Id.SubtypeName).Split('\n')[0].Trim(),
+                    blockId = item.BlockDefinition == null ? null : $"{Dto.ShortType(item.BlockDefinition.Id.TypeId.ToString())}/{item.BlockDefinition.Id.SubtypeName}",
+                    size = item.BlockDefinition?.CubeSize == MyCubeSize.Large ? "large" : "small",
+                    inProgress = item.IsInProgress,
+                    components = (item.Components ?? new List<MyIdentity.BuildPlanItem.Component>())
+                        .Where(c => c.ComponentDefinition != null && c.Count > 0)
+                        .Select(c => new { type = "Component", subtype = c.ComponentDefinition.Id.SubtypeName, count = c.Count })
+                        .ToList(),
+                }).ToList(),
+            };
+        }
 
         private static IMyConveyorEndpointBlock Endpoint(VRage.ModAPI.IMyEntity entity)
         {

@@ -70,3 +70,9 @@ TOOLS.update({
     "remove_from_queue": Fairness("own", "construct"),
     "clear_production_queue": Fairness("own", "construct"),
 })
+
+TOOLS.update({
+    "block_cost": Fairness("own", None, "game knowledge (block definitions) plus the ship's own stock"),
+    "build_planner": Fairness("player", "suit", "withdraw follows the inventory screen's conveyor rules"),
+    "projector_status": Fairness("own", "construct"),
+})

@@ -254,7 +254,13 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
    - Tools: `recipe` (world-adjusted cost, time, which blocks, ship shortfall), `queue_production` (picks the assembler), `remove_from_queue` and `clear_production_queue`.
    - Verified live.
    - Not done: reordering the queue (`MoveQueueItemRequest`) and refinery ore priority.
-3. **Build planning**: projector progress (remaining and buildable blocks, missing components) and component costs from block definitions. "What do I need to finish this, and what am I short of?"
+3. ✅ **Build planning**: projector progress (remaining and buildable blocks, missing components) and component costs from block definitions. "What do I need to finish this, and what am I short of?"
+   - Methods: `blockdefs.find`, `projector.get`, `buildplanner.get` (host).
+   - Tools:
+     - `block_cost`: components, then ingots at world efficiency, then ore at Refinery yield, each against what the ship has.
+     - `build_planner`: show, withdraw to the suit through the conveyor rules, or queue what's missing.
+     - `projector_status`: progress, needs and shortfall, with optional queueing.
+   - Verified live: block costs. The build planner and projectors are verified only with fakes so far.
 4. **Screens**: write text, and later sprites, on LCDs and cockpit screens. Status boards, and eventually the AI's own face.
 5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
 6. **Suit**: helmet, jetpack, dampeners, lights.

@@ -185,6 +185,15 @@ The `rc.*` methods take `blockId` (a Remote Control) and return its state:
 
 `production.get` queue entries also have `index` and `blueprintId`. Queue changes use the game's own requests (`AddQueueItemRequest` and the like), so they sync in multiplayer like the production screen.
 
+`recipes.list` also returns `refineryEfficiency`: refinery type name to its ore-to-ingot yield factor (`MaterialEfficiency`, before yield modules).
+
+## Build planning methods (M7)
+
+| Method | Params | Returns |
+|---|---|---|
+| `blockdefs.find` | `query` (words that must all appear in the name or subtype id), `size?` (`large`/`small`), `limit?`=30 | `blocks[]`: `id` (e.g. `Gyro/LargeBlockGyro`), `name`, `size`, `pcu`, `count`, `components[]` (`type`, `subtype`, `count`). Exact name first, then names containing every word, then shorter names. Public blocks with components only |
+| `projector.get` | `blockId` | `name`, `projecting`, `working`. When projecting, also: `projectedGrid`, `totalBlocks`, `remainingBlocks`, `remainingArmorBlocks`, `buildableNow`, `remaining[]` (block types not placed yet, as `blockdefs.find` entries with `count`), `unfinishedBlocks` and `unfinishedComponents[]` (missing components of placed but unfinished or damaged blocks on the projector's ship) |
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.
@@ -206,6 +215,7 @@ Returns `source`, `format`, `width`, `height`, `fovDegrees`, `position` and `ima
 | Method | Params | Returns |
 |---|---|---|
 | `sun.info` | `gridId?` | `sunDirection` (unit vector toward the sun, `[x,y,z]`). With `gridId`, `panels[]` for every solar panel in the construct: `id`, `name`, `normal` (world), `twoSided`, `exposure` (0–1, the game's own formula: `dot(normal, sunDirection)`), `maxOutputMW` (definition), `currentMaxMW` (what it can make now, including shadowing) |
+| `buildplanner.get` | — | `items[]` from the player's build planner (G menu), stored on their identity: `index`, `block`, `blockId`, `size`, `inProgress`, `components[]` still needed |
 | `grid.motion` | `gridId` | `center` and `radius` (bounding box of the construct), `cockpit` (`name`, `forward`, `up` of the main, occupied or first flight seat, else null), `isStatic`, `gravityG` (natural gravity), `forward`/`up`/`right` (world unit vectors), `angularVelocity` (rad/s), `linearVelocity` (m/s), `gyros[]`: `id`, `name`, `forward`/`up`/`right`, `overriding`, `working` |
 
 Gyro override properties (`Override`, `Pitch`, `Yaw`, `Roll` in RPM) are set with `block.set_property`. Their sign conventions relative to the gyro's axes aren't obvious, so the Python `steering` module measures them with a short test spin before turning.

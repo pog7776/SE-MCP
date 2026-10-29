@@ -123,6 +123,11 @@ namespace SEMcp.Core.Services
                 // Assemblers use ingredients / this; refineries yield more by their own efficiency (upgrades).
                 assemblerEfficiency = settings?.AssemblerEfficiencyMultiplier,
                 refinerySpeed = settings?.RefinerySpeedMultiplier,
+                // Ore-to-ingot yield factor of each refinery type (before yield modules): output = recipe output x this.
+                refineryEfficiency = MyDefinitionManager.Static.GetAllDefinitions().OfType<MyRefineryDefinition>()
+                    .Where(d => d.Public)
+                    .GroupBy(d => (d.DisplayNameText ?? d.Id.SubtypeName).Split('\n')[0].Trim())
+                    .ToDictionary(g => g.Key, g => Math.Round(g.Max(d => d.MaterialEfficiency), 3)),
                 recipes = MadeIn()
                     .Where(x => x.Key.Results != null && x.Key.Results.Length > 0 && x.Key.Prerequisites != null && x.Key.Prerequisites.Length > 0)
                     // Real items only, and not the build planner's per-block component kits ("RadioAntenna/LargeBlockRadioAntenna").

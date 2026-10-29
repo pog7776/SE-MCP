@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable
 from mcp.server.mcpserver import Image, MCPServer
 
 from . import autopilot
+from . import build
 from . import format as fmt
 from . import items as items_mod
 from . import organizer
@@ -252,6 +253,146 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         target = await resolve.block(bridge, assembler, grid)
         r = await bridge.call("production.clear", {"blockId": target["id"]})
         return f"Cleared {r['block']}'s queue."
+
+    # --- Build planning. ---
+
+    async def _ship_have(grid: str | None) -> tuple[dict[str, Any] | None, dict[tuple[str, str], float] | None]:
+        try:
+            target = await resolve.grid(bridge, grid)
+        except ResolveError:
+            return None, None
+        return target, production_mod.ship_totals(await bridge.call("inventory.get", {"gridId": target["id"]}))
+
+    async def _queue_components(target: dict[str, Any], needs: dict[tuple[str, str], float], book: dict[str, Any]) -> list[str]:
+        lines = []
+        for key, count in sorted(needs.items(), key=lambda kv: -kv[1]):
+            recipes = [r for r in production_mod.producing(key, book) if not production_mod.is_refining(r)]
+            name = items_mod.display(*key)
+            if not recipes:
+                lines.append(f"- {name}: no assembler recipe")
+                continue
+            r = recipes[0]
+            try:
+                block = await production_mod.pick_producer(bridge, target["id"], r, None)
+                runs = production_mod.runs_for(r, key, round(count))
+                await bridge.call("production.queue", {"blockId": block["id"], "blueprint": r["id"], "amount": runs})
+                lines.append(f"- queued {round(count)} {name} in {block['name']}")
+            except (ResolveError, BridgeError) as e:
+                lines.append(f"- {name}: {e}")
+        return lines
+
+    @tool
+    async def block_cost(block: str, count: int = 1, size: str | None = None, depth: str = "ore", grid: str | None = None) -> str:
+        """What it takes to build blocks: components, then the ingots to assemble them (world efficiency) and the
+        ore to refine those, each compared with what the ship has. E.g. block="gyroscope", or "refinery", count=10.
+
+        size: "large" or "small" grid (default: the best name match, usually large). depth: "components", "ingots" or "ore"."""
+        found = (await bridge.call("blockdefs.find", {"query": block, **({"size": size} if size else {}), "limit": 8}))["blocks"]
+        if not found:
+            return f"No block called '{block}'."
+        chosen = found[0]
+        book = await production_mod.recipes(bridge)
+        _, have = await _ship_have(grid)
+        components = build.add({}, chosen["components"])
+        components = {k: v * count for k, v in components.items()}
+        others = [f"{b['name']} ({b['size']})" for b in found[1:6]]
+        head = f"{count}x {chosen['name']} ({chosen['size']} grid, {chosen['pcu'] * count} PCU)"
+        text = head + "\n" + build.breakdown(components, book, have, depth)
+        if others:
+            text += "\nOther matches: " + ", ".join(others)
+        return text
+
+    @tool
+    async def build_planner(action: str = "show", grid: str | None = None) -> str:
+        """The player's build planner (blocks added from the G menu) and the components it needs.
+
+        action: "show" (needs vs. what the ship has), "withdraw" (move the components from the ship into the
+        suit, through conveyors from where the player is, like the Withdraw button), or "queue" (queue what's
+        missing in the ship's assemblers)."""
+        planner = (await bridge.call("buildplanner.get"))["items"]
+        if not planner:
+            return "Your build planner is empty (add blocks from the G menu)."
+        needs: dict[tuple[str, str], float] = {}
+        for item in planner:
+            build.add(needs, item["components"])
+        target, have = await _ship_have(grid)
+        blocks = ", ".join(f"{i['block']} ({i['size']})" for i in planner)
+        if action == "show":
+            book = await production_mod.recipes(bridge)
+            return f"Build planner: {blocks}\n" + build.breakdown(needs, book, have, "components")
+        if target is None:
+            return "Stand in or near a ship so I know whose cargo and assemblers to use."
+        if action == "queue":
+            book = await production_mod.recipes(bridge)
+            missing = build.queue_list(needs, have or {})
+            if not missing:
+                return "The ship already has every component the build planner needs."
+            return "Queued what's missing for the build planner:\n" + "\n".join(await _queue_components(target, missing, book))
+        if action == "withdraw":
+            suit = await bridge.call("inventory.get", {"character": True})
+            in_suit = production_mod.ship_totals(suit)
+            layout = await bridge.call("inventory.layout", {"gridId": target["id"]})
+            lines = []
+            for key, count in needs.items():
+                want = count - in_suit.get(key, 0.0)
+                name = items_mod.display(*key)
+                if want <= 0:
+                    lines.append(f"- {name}: already in your suit")
+                    continue
+                holders = sorted(((i, x["amount"]) for i in layout["inventories"] for x in i["items"]
+                                  if (x["type"], x["subtype"]) == key), key=lambda h: -h[1])
+                got, problem = 0.0, None
+                for inv, amount in holders:
+                    if got >= want:
+                        break
+                    try:
+                        r = await bridge.call("inventory.transfer", {
+                            "fromBlockId": inv["blockId"], "fromIndex": inv["index"], "toCharacter": True,
+                            "type": key[0], "subtype": key[1], "amount": min(amount, want - got)})
+                    except BridgeError as e:
+                        problem = str(e)
+                        continue
+                    got += r["moved"]
+                    problem = r["reason"] or problem
+                status = f"{got:g}/{want:g}" + (f" ({problem})" if got < want and problem else " (not on the ship)" if got < want else "")
+                lines.append(f"- {name}: {status}")
+            return "Withdrew build planner components into your suit:\n" + "\n".join(lines)
+        return "action must be show, withdraw or queue."
+
+    @tool
+    async def projector_status(projector: str | None = None, queue_missing: bool = False, grid: str | None = None) -> str:
+        """A projector's build progress: blocks left, buildable now, the components still needed (unplaced blocks
+        plus unfinished welds on the ship) and what the ship is short of. queue_missing=True queues the shortfall."""
+        target = await resolve.grid(bridge, grid)
+        if projector:
+            pj = await resolve.block(bridge, projector, grid)
+        else:
+            found = (await bridge.call("blocks.list", {"gridId": target["id"], "type": "Projector"}))["blocks"]
+            if not found:
+                return f"No projector on {target.get('name') or 'this ship'}."
+            pj = found[0]
+        info = await bridge.call("projector.get", {"blockId": pj["id"]})
+        if not info["projecting"]:
+            return f"{info['name']} isn't projecting anything" + ("" if info["working"] else " (and isn't working)") + "."
+        needs: dict[tuple[str, str], float] = {}
+        for b in info["remaining"]:
+            build.add(needs, b.get("components") or [])
+        build.add(needs, info["unfinishedComponents"])
+        have = production_mod.ship_totals(await bridge.call("inventory.get", {"gridId": target["id"]}))
+        book = await production_mod.recipes(bridge)
+        done = info["totalBlocks"] - info["remainingBlocks"]
+        lines = [f"{info['name']}: {info['projectedGrid'] or 'projection'}, {done}/{info['totalBlocks']} blocks placed, "
+                 f"{info['remainingBlocks']} left ({info['remainingArmorBlocks']} armor), {info['buildableNow']} buildable now."]
+        top = sorted(info["remaining"], key=lambda b: -b["count"])[:8]
+        if top:
+            lines.append("Left to place: " + ", ".join(f"{b['count']}x {b['name']}" for b in top) + ("..." if len(info["remaining"]) > 8 else ""))
+        if info["unfinishedBlocks"]:
+            lines.append(f"Plus {info['unfinishedBlocks']} placed blocks that aren't fully welded.")
+        lines.append(build.breakdown(needs, book, have, "components"))
+        if queue_missing:
+            missing = build.queue_list(needs, have)
+            lines.append("Queued:\n" + "\n".join(await _queue_components(target, missing, book)) if missing else "Nothing to queue: the ship has it all.")
+        return "\n".join(lines)
 
     # --- Inventory management. Moves go through conveyors, like dragging items in the terminal. ---
 
