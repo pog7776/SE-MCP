@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using Sandbox.Definitions;
 using Sandbox.Game;
+using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.GameSystems;
 using Sandbox.Game.GameSystems.Conveyors;
@@ -31,6 +32,122 @@ namespace SEMcp.Host
             dispatcher.Register("buildplanner.get", p => BuildPlanner(dispatcher));
             dispatcher.Register("highlight.set", p => Highlight(access, dispatcher, p));
             dispatcher.Register("highlight.clear", p => ClearHighlights(p));
+            dispatcher.Register("environment.get", p => Environment(access, dispatcher, p));
+            dispatcher.Register("environment.bodies", p => Bodies(access, dispatcher, p));
+        }
+
+        private static List<MyPlanet> Planets()
+        {
+            var planets = new List<MyPlanet>();
+            foreach (var entity in MyEntities.GetEntities())
+                if (entity is MyPlanet planet)
+                    planets.Add(planet);
+            return planets;
+        }
+
+        private static string PlanetName(MyPlanet planet) =>
+            planet.Generator?.Id.SubtypeName ?? planet.StorageName ?? planet.Name;
+
+        // Where we are: gravity, the nearest planet (altitude, atmosphere, air), weather, and the sun.
+        private static object Environment(Access access, Dispatcher dispatcher, JsonObject p)
+        {
+            dispatcher.RequireSession();
+            Vector3D position = p["gridId"] != null ? access.Grid(p.Id("gridId")).WorldAABB.Center : access.Origin;
+            Vector3 natural = MyAPIGateway.Physics.CalculateNaturalGravityAt(position, out float interference);
+            Vector3 artificial = MyAPIGateway.Physics.CalculateArtificialGravityAt(position, interference);
+            Vector3D sun = MySector.DirectionToSunNormalized;
+
+            object planetInfo = null;
+            var planet = Planets()
+                .OrderBy(pl => Vector3D.Distance(position, pl.PositionComp.GetPosition()) - pl.AverageRadius)
+                .FirstOrDefault();
+            if (planet != null)
+            {
+                Vector3D center = planet.PositionComp.GetPosition();
+                Vector3D surface = planet.GetClosestSurfacePointGlobal(position);
+                double fromCenter = Vector3D.Distance(position, center);
+                double altitude = fromCenter - Vector3D.Distance(surface, center);
+                Vector3D up = Vector3D.Normalize(position - center);
+                double sunElevation = MathHelper.ToDegrees(Math.Asin(MathHelper.Clamp(Vector3D.Dot(up, sun), -1, 1)));
+                bool inAtmosphere = planet.HasAtmosphere && fromCenter < planet.AtmosphereRadius;
+                planetInfo = new
+                {
+                    name = PlanetName(planet),
+                    distanceToCenterKm = Math.Round(fromCenter / 1000, 2),
+                    altitude = Math.Round(altitude, 1),
+                    radiusKm = Math.Round(planet.AverageRadius / 1000, 2),
+                    surfaceGravityG = planet.Generator?.SurfaceGravity,
+                    hasAtmosphere = planet.HasAtmosphere,
+                    atmosphereTopAltitude = planet.HasAtmosphere ? Math.Round(planet.AtmosphereRadius - planet.AverageRadius) : (double?)null,
+                    inAtmosphere,
+                    airDensity = inAtmosphere ? Math.Round(planet.GetAirDensity(position), 3) : 0,
+                    oxygen = inAtmosphere ? Math.Round(planet.GetOxygenForPosition(position), 3) : 0,
+                    // Degrees above the horizon here: positive = day, negative = night.
+                    sunElevation = Math.Round(sunElevation, 1),
+                };
+            }
+
+            var weather = MyAPIGateway.Session.WeatherEffects;
+            string weatherName = weather?.GetWeather(position);
+            return new
+            {
+                position = Vec(position),
+                naturalGravityG = Math.Round(natural.Length() / 9.81, 3),
+                artificialGravityG = Math.Round(artificial.Length() / 9.81, 3),
+                gravityDirection = natural.LengthSquared() > 0 ? Vec(Vector3D.Normalize(natural)) : null,
+                planet = planetInfo,
+                weather = string.IsNullOrEmpty(weatherName) ? null : new
+                {
+                    name = weatherName,
+                    intensity = Math.Round(weather.GetWeatherIntensity(position), 2),
+                    solar = Math.Round(weather.GetSolarMultiplier(position), 2),
+                    wind = Math.Round(weather.GetWindMultiplier(position), 2),
+                    oxygen = Math.Round(weather.GetOxygenMultiplier(position), 2),
+                },
+                sunDirection = Vec(sun),
+                dayLengthMinutes = MyAPIGateway.Session.SessionSettings?.SunRotationIntervalMinutes,
+            };
+        }
+
+        // Planets and moons (all of them) and asteroids within range, nearest first.
+        private static object Bodies(Access access, Dispatcher dispatcher, JsonObject p)
+        {
+            dispatcher.RequireSession();
+            Vector3D origin = access.Origin;
+            double range = p.Number("range", 50000);
+            var planets = Planets().Select(pl => new
+            {
+                kind = "planet",
+                name = PlanetName(pl),
+                distanceKm = Math.Round(Math.Max(0, Vector3D.Distance(origin, pl.PositionComp.GetPosition()) - pl.AverageRadius) / 1000, 2),
+                radiusKm = Math.Round(pl.AverageRadius / 1000, 2),
+                surfaceGravityG = pl.Generator?.SurfaceGravity,
+                hasAtmosphere = pl.HasAtmosphere,
+                center = Vec(pl.PositionComp.GetPosition()),
+            });
+            var asteroids = new List<(double distance, object info)>();
+            foreach (var entity in MyEntities.GetEntities())
+            {
+                if (!(entity is MyVoxelMap voxel) || entity is MyPlanet)
+                    continue;
+                double distance = voxel.PositionComp.WorldAABB.Distance(origin);
+                if (distance > range)
+                    continue;
+                var size = voxel.PositionComp.WorldAABB.Size;
+                asteroids.Add((distance, new
+                {
+                    kind = "asteroid",
+                    name = voxel.StorageName,
+                    distanceKm = Math.Round(distance / 1000, 2),
+                    sizeM = Math.Round(Math.Max(size.X, Math.Max(size.Y, size.Z))),
+                    center = Vec(voxel.PositionComp.WorldAABB.Center),
+                }));
+            }
+            return new
+            {
+                planets = planets.OrderBy(x => x.distanceKm).ToList(),
+                asteroids = asteroids.OrderBy(x => x.distance).Take((int)p.Number("limit", 30)).Select(x => x.info).ToList(),
+            };
         }
 
         // Entities we've highlighted, so they can be cleared together (and on host stop).

@@ -273,8 +273,8 @@ Remaining items, reordered by value for effort, quick wins first and docking las
 5. ✅ **Highlights** (done: `highlight_blocks` by name, type, group or damaged; `clear_highlights`; verified live, and visible in offscreen renders too): make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
 6. ✅ **Suit**: helmet, jetpack, dampeners, lights (`suit_controls`, verified live).
 7. ✅ **Safety net** (`save_world`: a normal save, with the game's own Backup folder as the restore point): save the world before risky operations, such as long autopilot runs or docking.
-8. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
-9. **Forecasts**: battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
+8. ✅ **Environment** (`environment`: gravity, nearest planet, altitude, air, sun height, weather, nearby bodies; verified live in deep space, planet output tested with fakes): nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
+9. ✅ **Forecasts** (`forecast`: batteries from in/out power, uranium at 1 kg/MWh, gas and suit from two samples; verified live): battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
 10. **Combat**: what turrets are targeting and their ammo; select or change targets.
 11. **Ore detectors**: what the ship's ore detectors currently see (the HUD ore markers), as summaries or GPS points. No reading the map's voxel data directly, which would be cheating.
 12. **Docking**:
@@ -336,6 +336,7 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
 - Workshop-mod host (file-polling transport over Core) for a no-Pulsar install.
 - Torch/dedicated-server host with per-player auth.
 - `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only. Shares its compiler plumbing with M11's runtime app authoring.
+- **Creative/admin tools** (the debug menu, exposed): teleport the player or a ship (to a planet, a GPS, a grid), spawn items or blueprints, set weather (`IMyWeatherEffects.SetWeather`) and time of day, and so on. Allowed only when the world is creative or the player has admin creative tools on. Tagged "omniscient"/cheat in fair play.
 - AI blocks: "follow me" (AI Basic Task mission) and route recording/replay (AI Recorder); writing AI Flight waypoints through game internals.
 - Production: reorder queue entries (`MoveQueueItemRequest`), refinery ore priority.
 - **In-world presence (optional):** the assistant reaches ships the way an in-game AI would, not by "god mode". Ideas: require an antenna/broadcast link from the player (suit radio on, ship antenna in range, `requireAntennaLink`); the "AI core" lives in a specific block (a tagged PB or the Automaton block), so damaging it cuts the assistant off; limited range or bandwidth; ships without a link stay unreachable. Off by default, a fun roleplay mode.

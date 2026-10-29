@@ -10,6 +10,7 @@ from mcp.server.mcpserver import Image, MCPServer
 
 from . import autopilot
 from . import build
+from . import forecast as forecast_mod
 from . import format as fmt
 from . import items as items_mod
 from . import organizer
@@ -184,6 +185,65 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             return "The game reported the save failed (see the SE log)."
         return (f"Saved '{r['world']}' in {r['seconds']:g} s. Earlier versions are in its Backup folder "
                 f"(keeps {r['backups']}). Path: {r['path']}")
+
+    # --- Environment and forecasts. ---
+
+    @tool
+    async def environment(grid: str | None = None, nearby: bool = False) -> str:
+        """Where you are: natural and artificial gravity, the nearest planet or moon (altitude, atmosphere, air,
+        oxygen, sun height for day/night), weather, and day length. nearby=True also lists planets and asteroids."""
+        params: dict[str, Any] = {}
+        if grid:
+            params["gridId"] = (await resolve.grid(bridge, grid))["id"]
+        env = await bridge.call("environment.get", params)
+        lines = [f"Gravity: {env['naturalGravityG']:.2f} g natural, {env['artificialGravityG']:.2f} g artificial."]
+        p = env.get("planet")
+        if p:
+            air = (f"in atmosphere (air density {p['airDensity']:.2f}, oxygen {p['oxygen'] * 100:.0f}%)" if p["inAtmosphere"]
+                   else "above the atmosphere" if p["hasAtmosphere"] else "no atmosphere")
+            daylight = "daytime" if p["sunElevation"] > 0 else "night"
+            lines.append(f"Nearest planet: {p['name']} ({p['radiusKm']:.0f} km radius, {p['surfaceGravityG']} g at the surface). "
+                         f"Altitude {p['altitude']:,.0f} m, {air}.")
+            lines.append(f"Sun {p['sunElevation']:+.0f} deg above the horizon ({daylight}); a day is {env['dayLengthMinutes']:.0f} min.")
+            w = env.get("weather")
+            if w and w["name"] != "Clear":
+                lines.append(f"Weather: {w['name']} (intensity {w['intensity']:.1f}; solar x{w['solar']}, wind x{w['wind']}, oxygen x{w['oxygen']}).")
+        else:
+            lines.append(f"Deep space: no planet nearby. A day (sun rotation) is {env['dayLengthMinutes']:.0f} min.")
+        if nearby:
+            bodies = await bridge.call("environment.bodies", {"limit": 10})
+            for pl in bodies["planets"]:
+                lines.append(f"- planet {pl['name']}: {pl['distanceKm']:,.1f} km to the surface, {pl['radiusKm']:.0f} km radius, "
+                             f"{pl['surfaceGravityG']} g{', atmosphere' if pl['hasAtmosphere'] else ''}")
+            for a in bodies["asteroids"]:
+                lines.append(f"- asteroid {a['name']}: {a['distanceKm'] * 1000:,.0f} m away, ~{a['sizeM']:.0f} m across")
+            if not bodies["planets"] and not bodies["asteroids"]:
+                lines.append("Nothing nearby.")
+        return "\n".join(lines)
+
+    @tool
+    async def forecast(grid: str | None = None, sample_seconds: float = 5, include_suit: bool = True) -> str:
+        """How long things last at the current rate: batteries, reactor uranium, hydrogen and oxygen tanks, and
+        the suit. Samples twice, sample_seconds apart, to measure gas and suit usage."""
+        target = await resolve.grid(bridge, grid)
+        first = await bridge.call("grid.get", {"gridId": target["id"]})
+        suit_first = await bridge.call("character.status") if include_suit else None
+        await asyncio.sleep(max(1.0, min(sample_seconds, 30)))
+        second = await bridge.call("grid.get", {"gridId": target["id"]})
+        suit_second = await bridge.call("character.status") if include_suit else None
+        totals = production_mod.ship_totals(await bridge.call("inventory.get", {"gridId": target["id"]}))
+        dt = max(1.0, min(sample_seconds, 30))
+        gas_before, gas_after = first.get("gas") or {}, second.get("gas") or {}
+        lines = [f"{target.get('name') or 'Ship'} (measured over {dt:g} s):"]
+        for line in (forecast_mod.batteries(second),
+                     forecast_mod.reactors(second, totals.get(("Ingot", "Uranium"), 0.0)),
+                     forecast_mod.gas("Hydrogen", gas_before.get("hydrogen"), gas_after.get("hydrogen"), dt),
+                     forecast_mod.gas("Oxygen", gas_before.get("oxygen"), gas_after.get("oxygen"), dt)):
+            if line:
+                lines.append(line)
+        if include_suit and suit_first and suit_second and suit_second.get("alive", True):
+            lines += forecast_mod.suit(suit_first, suit_second, dt)
+        return "\n".join(lines)
 
     # --- Highlights: make blocks glow for the player. ---
 

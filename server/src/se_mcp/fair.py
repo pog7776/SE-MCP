@@ -89,3 +89,8 @@ TOOLS.update({
     "highlight_blocks": Fairness("own", None, "a HUD aid shown only to the player"),
     "clear_highlights": Fairness("own", None),
 })
+
+TOOLS.update({
+    "environment": Fairness("sensed", None, "local gravity/air/weather are what the suit and cockpit sense; listing every planet and asteroid is omniscient"),
+    "forecast": Fairness("own", None),
+})
