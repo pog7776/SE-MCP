@@ -73,6 +73,9 @@ namespace SEMcp.Core.Services
                     locked = g.IsLocked,
                     mode = g.LockMode.ToString(),
                     autoLock = g.AutoLock,
+                    position = Vec(g.GetPosition()),
+                    forward = Vec(g.WorldMatrix.Forward, 4),
+                    up = Vec(g.WorldMatrix.Up, 4),
                 }).ToList(),
                 mergeBlocks = blocks.OfType<IMyShipMergeBlock>().OrderBy(m => m.CustomName).Select(m => new
                 {

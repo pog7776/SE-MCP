@@ -134,6 +134,21 @@ class ConnectorPilot:
                 raise TimeoutError(f"still {length(error):.2f} m and {math.degrees(angle):.1f} deg off after {timeout_s:.0f} s")
 
 
+class GearPilot(ConnectorPilot):
+    """The same flying, with a landing gear / magnetic plate as the reference: its lock face (the block's down
+    side) is brought onto a surface. The target is a point on the surface with forward = the surface normal."""
+
+    async def connector(self) -> dict[str, Any]:
+        r = await self.bridge.call("dock.get", {"gridId": self.ship_id})
+        g = next(x for x in r["landingGear"] if x["id"] == self.connector_id)
+        return {**g, "forward": scale(g["up"], -1), "status": g["mode"]}
+
+
+def gear_face(gear: dict[str, Any]) -> Vec:
+    """The direction a landing gear or magnetic plate locks toward: the block's down side."""
+    return scale(gear["up"], -1)
+
+
 def status_text(r: dict[str, Any]) -> str:
     lines = [f"{r['gridName']}{' (station)' if r['isStatic'] else ''} docking:"]
     for c in r["connectors"]:
