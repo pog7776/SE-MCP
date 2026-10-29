@@ -164,6 +164,67 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         return fmt.suit(await bridge.call("character.status"))
 
     @tool
+    async def suit_controls(helmet: bool | None = None, jetpack: bool | None = None, dampeners: bool | None = None,
+                            lights: bool | None = None) -> str:
+        """Switch the player's helmet, jetpack, inertia dampeners or suit lights on/off, like pressing J/X/Z/L.
+        Only the ones given change. Careful: opening the helmet in vacuum or killing the jetpack mid-flight hurts."""
+        params = {k: v for k, v in (("helmet", helmet), ("jetpack", jetpack), ("dampeners", dampeners), ("lights", lights)) if v is not None}
+        if not params:
+            return "Say which to switch: helmet, jetpack, dampeners and/or lights."
+        r = await bridge.call("character.switch", params)
+        state = ", ".join(f"{k} {'on' if r[k] else 'off'}" for k in ("helmet", "jetpack", "dampeners", "lights"))
+        return (f"Switched {', '.join(r['changed'])}. " if r["changed"] else "Already like that. ") + f"Now: {state}."
+
+    @tool
+    async def save_world() -> str:
+        """Save the world now (like Ctrl+S), as a restore point before something risky. The game keeps earlier
+        saves in the world's Backup folder. Single player or host only; takes a few seconds and hitches the game."""
+        r = await bridge.call("session.save", timeout=120)
+        if not r["saved"]:
+            return "The game reported the save failed (see the SE log)."
+        return (f"Saved '{r['world']}' in {r['seconds']:g} s. Earlier versions are in its Backup folder "
+                f"(keeps {r['backups']}). Path: {r['path']}")
+
+    # --- Highlights: make blocks glow for the player. ---
+
+    @tool
+    async def highlight_blocks(blocks: str | None = None, type: str | None = None, group: str | None = None,
+                               damaged: bool = False, color: str = "#FFD000", pulse: bool = True, grid: str | None = None) -> str:
+        """Make blocks glow so the player can find them (only they see it). Pick by blocks (names, comma-separated),
+        type ("thruster", "battery"), group, and/or damaged=True (anything not at full integrity). Functional blocks
+        only: plain armor can't glow. Clear with clear_highlights."""
+        target = await resolve.grid(bridge, grid)
+        chosen: dict[str, str] = {}
+        if blocks:
+            for name in [b.strip() for b in blocks.split(",") if b.strip()]:
+                b = await resolve.block(bridge, name, grid)
+                chosen[b["id"]] = b.get("name") or name
+        if type or group or damaged or not blocks:
+            params: dict[str, Any] = {"gridId": target["id"], "limit": 1000}
+            if type:
+                params["type"] = type
+            if group:
+                params["group"] = group
+            if type or group or damaged:
+                for b in (await bridge.call("blocks.list", params))["blocks"]:
+                    if not damaged or b.get("integrity", 100) < 100:
+                        chosen[b["id"]] = b["name"]
+        if not chosen:
+            return "Nothing matched (no damaged functional blocks?)." if damaged else "Nothing matched."
+        r = await bridge.call("highlight.set", {"blockIds": list(chosen), "color": color, "pulseFrames": 60 if pulse else 0})
+        names = r["highlighted"]
+        text = f"Highlighted {len(names)} block(s): " + ", ".join(names[:20]) + ("..." if len(names) > 20 else "")
+        if r["skipped"]:
+            text += f"\nSkipped: {'; '.join(r['skipped'][:5])}"
+        return text
+
+    @tool
+    async def clear_highlights() -> str:
+        """Turn off every highlight made with highlight_blocks."""
+        r = await bridge.call("highlight.clear", {})
+        return f"Cleared {r['cleared']} highlight(s)."
+
+    @tool
     async def production(grid: str | None = None) -> str:
         """Assemblers, refineries and survival kits on a ship: producing or not, queues, input/output fill."""
         target = await resolve.grid(bridge, grid)

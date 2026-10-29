@@ -270,9 +270,9 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
    - The tools are dynamic: `set_screen_mode` checks the screen's own app list (`GetScripts()`) at call time, so modded apps work. They work on any block screen (`IMyTextSurfaceProvider`), modded blocks included.
 Remaining items, reordered by value for effort, quick wins first and docking last because it needs new flight control:
 
-5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
-6. **Suit**: helmet, jetpack, dampeners, lights.
-7. **Safety net**: save the world before risky operations, such as long autopilot runs or docking.
+5. ✅ **Highlights** (done: `highlight_blocks` by name, type, group or damaged; `clear_highlights`; verified live, and visible in offscreen renders too): make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
+6. ✅ **Suit**: helmet, jetpack, dampeners, lights (`suit_controls`, verified live).
+7. ✅ **Safety net** (`save_world`: a normal save, with the game's own Backup folder as the restore point): save the world before risky operations, such as long autopilot runs or docking.
 8. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
 9. **Forecasts**: battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
 10. **Combat**: what turrets are targeting and their ammo; select or change targets.

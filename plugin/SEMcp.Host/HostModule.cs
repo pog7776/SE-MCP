@@ -60,6 +60,7 @@ namespace SEMcp.Host
         public void Stop()
         {
             server?.Stop();
+            HostMethods.ClearAllHighlights();
             capture?.Dispose();
             capture = null;
             AppDomain.CurrentDomain.AssemblyResolve -= ResolveLoaded;

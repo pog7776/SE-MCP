@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Sandbox.ModAPI;
@@ -29,6 +30,42 @@ namespace SEMcp.Core.Services
         {
             dispatcher.Register("player.context", _ => Context());
             dispatcher.Register("character.status", _ => CharacterStatus());
+            dispatcher.Register("character.switch", Switch);
+        }
+
+        // Suit toggles, like pressing the keys: helmet (J), jetpack (X), dampeners (Z), lights (L). Only the ones
+        // given are touched, and only if they differ. The character's own Switch* calls sync like player input.
+        private object Switch(JsonObject p)
+        {
+            dispatcher.RequireWritable();
+            var character = access.Player.Character
+                ?? throw new RpcException(ErrorKind.NotFound, "The player has no character (dead or spectating?)");
+            var controllable = (VRage.Game.ModAPI.Interfaces.IMyControllableEntity)character;
+            var changed = new List<string>();
+            void Apply(string key, bool current, Action toggle)
+            {
+                if (p[key] == null)
+                    return;
+                bool wanted = p.Bool(key, current);
+                if (wanted == current)
+                    return;
+                toggle();
+                changed.Add($"{key} {(wanted ? "on" : "off")}");
+            }
+            Apply("helmet", controllable.EnabledHelmet, controllable.SwitchHelmet);
+            Apply("jetpack", controllable.EnabledThrusts, controllable.SwitchThrusts);
+            Apply("dampeners", controllable.EnabledDamping, controllable.SwitchDamping);
+            Apply("lights", controllable.EnabledLights, controllable.SwitchLights);
+            if (changed.Count > 0)
+                dispatcher.Context.Log("suit: " + string.Join(", ", changed));
+            return new
+            {
+                changed,
+                helmet = controllable.EnabledHelmet,
+                jetpack = controllable.EnabledThrusts,
+                dampeners = controllable.EnabledDamping,
+                lights = controllable.EnabledLights,
+            };
         }
 
         // What the player is controlling and looking at: lets tools default to "this ship" / "that block".

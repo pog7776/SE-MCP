@@ -82,3 +82,10 @@ TOOLS.update({
     "write_screen": Fairness("own", "construct"),
     "set_screen_mode": Fairness("own", "construct"),
 })
+
+TOOLS.update({
+    "suit_controls": Fairness("player", "suit"),
+    "save_world": Fairness("player", None, "out-of-game action (saving), not something an in-game AI does"),
+    "highlight_blocks": Fairness("own", None, "a HUD aid shown only to the player"),
+    "clear_highlights": Fairness("own", None),
+})

@@ -8,8 +8,10 @@ using Sandbox.Game;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.GameSystems;
 using Sandbox.Game.GameSystems.Conveyors;
+using Sandbox.Game.SessionComponents;
 using VRage.Game;
 using VRage.Game.Entity;
+using VRage.Game.ObjectBuilders.Gui;
 using Sandbox.Game.World;
 using Sandbox.ModAPI;
 using SEMcp.Core;
@@ -27,6 +29,88 @@ namespace SEMcp.Host
             dispatcher.Register("sun.info", p => SunInfo(access, p));
             dispatcher.Register("grid.motion", p => Motion(access, p));
             dispatcher.Register("buildplanner.get", p => BuildPlanner(dispatcher));
+            dispatcher.Register("highlight.set", p => Highlight(access, dispatcher, p));
+            dispatcher.Register("highlight.clear", p => ClearHighlights(p));
+        }
+
+        // Entities we've highlighted, so they can be cleared together (and on host stop).
+        private static readonly HashSet<long> Highlighted = new HashSet<long>();
+
+        private static MyHighlightSystem HighlightSystem =>
+            MySession.Static?.GetComponent<MyHighlightSystem>()
+            ?? throw new RpcException(ErrorKind.NoSession, "No highlight system (no world loaded?)");
+
+        private static void SetHighlight(long entityId, Color color, int thickness, ulong pulseFrames)
+        {
+            HighlightSystem.RequestHighlightChange(new MyHighlightData
+            {
+                EntityId = entityId,
+                OutlineColor = color,
+                Thickness = thickness, // -1 turns it off
+                PulseTimeInFrames = pulseFrames,
+                PlayerId = -1, // the local player only
+                IgnoreUseObjectData = true,
+            });
+        }
+
+        // Makes blocks glow for the local player only (the scenario highlight system). Blocks that aren't
+        // entities (plain armor) can't glow; those are reported back.
+        private static object Highlight(Access access, Dispatcher dispatcher, JsonObject p)
+        {
+            dispatcher.RequireSession();
+            var ids = (p["blockIds"] as JsonArray ?? throw new RpcException(ErrorKind.InvalidParams, "Give blockIds"))
+                .Select(n => long.Parse(n.ToString())).ToList();
+            var color = p["color"] != null ? ColorParam.Parse(p["color"]) : Color.Yellow;
+            int thickness = (int)MathHelper.Clamp(p.Number("thickness", 8), 1, 30);
+            ulong pulse = (ulong)MathHelper.Clamp(p.Number("pulseFrames", 60), 0, 600);
+            var lit = new List<string>();
+            var skipped = new List<string>();
+            foreach (long id in ids)
+            {
+                IMyTerminalBlock block;
+                try
+                {
+                    block = access.Block(id);
+                }
+                catch (RpcException e)
+                {
+                    skipped.Add($"{id}: {e.Message}");
+                    continue;
+                }
+                SetHighlight(block.EntityId, color, thickness, pulse);
+                Highlighted.Add(block.EntityId);
+                lit.Add(block.CustomName);
+            }
+            return new { highlighted = lit, skipped };
+        }
+
+        private static object ClearHighlights(JsonObject p)
+        {
+            var ids = p["blockIds"] is JsonArray list ? list.Select(n => long.Parse(n.ToString())).ToList() : Highlighted.ToList();
+            int cleared = 0;
+            foreach (long id in ids)
+            {
+                if (MySession.Static == null)
+                    break;
+                SetHighlight(id, Color.Transparent, -1, 0);
+                Highlighted.Remove(id);
+                cleared++;
+            }
+            return new { cleared };
+        }
+
+        // Host stop (hot reload, world unload): don't leave blocks glowing with nothing to switch them off.
+        public static void ClearAllHighlights()
+        {
+            try
+            {
+                if (MySession.Static != null)
+                    ClearHighlights(new JsonObject());
+            }
+            catch (Exception)
+            {
+                Highlighted.Clear();
+            }
         }
 
         private static readonly FieldInfo CompilerErrorsField =

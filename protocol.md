@@ -204,6 +204,13 @@ These cover every text surface of a block: LCDs, cockpit screens, programmable b
 | `screen.write` | `blockId`, `surface?`=0, `text?`, `append?`, `fontSize?`, `font?`, `fontColor?`, `background?` (`#RRGGBB` or `{r,g,b}`), `alignment?` (left/center/right), `padding?`, `clearImages?`=true | `block`, `before` (the surface as it was, full text), `after`. Switches the surface to text mode. Uses `IMyTextSurface.WriteText`, like a PB script; the block syncs it |
 | `screen.mode` | `blockId`, `surface?`=0, `mode` (`text`/`script`/`none`), `script` (for `script`; must be one the surface offers) | `block`, `before`, `after` |
 
+## Player and session methods (M7)
+
+| Method | Params | Returns |
+|---|---|---|
+| `character.switch` | any of `helmet`, `jetpack`, `dampeners`, `lights` (bool) | `changed[]`, and the four states. Uses the character's own `Switch*` calls (like pressing J/X/Z/L), which sync like player input; only the keys given that differ are toggled |
+| `session.save` | — | `saved`, `world`, `path`, `backups` (`MaxBackupSaves`), `seconds`. A normal save of the current world (`IMySession.Save()` with no name; a custom name would act like "Save As" and move the session). The game keeps earlier versions in the world's Backup folder. Server/single player only (`feature_disabled` on a client). Blocks the game thread while saving |
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.
@@ -225,6 +232,8 @@ Returns `source`, `format`, `width`, `height`, `fovDegrees`, `position` and `ima
 | Method | Params | Returns |
 |---|---|---|
 | `sun.info` | `gridId?` | `sunDirection` (unit vector toward the sun, `[x,y,z]`). With `gridId`, `panels[]` for every solar panel in the construct: `id`, `name`, `normal` (world), `twoSided`, `exposure` (0–1, the game's own formula: `dot(normal, sunDirection)`), `maxOutputMW` (definition), `currentMaxMW` (what it can make now, including shadowing) |
+| `highlight.set` | `blockIds[]`, `color?` (default yellow), `thickness?`=8, `pulseFrames?`=60 (0 = steady) | `highlighted[]` (names), `skipped[]`. Makes blocks glow for the local player only (`MyHighlightSystem`, the scenario highlight system). Only blocks that are entities: functional blocks, not plain armor |
+| `highlight.clear` | `blockIds[]?` (default: everything highlighted) | `cleared`. The host also clears its highlights when it stops (hot reload, unload) |
 | `buildplanner.get` | — | `items[]` from the player's build planner (G menu), stored on their identity: `index`, `block`, `blockId`, `size`, `inProgress`, `components[]` still needed |
 | `grid.motion` | `gridId` | `center` and `radius` (bounding box of the construct), `cockpit` (`name`, `forward`, `up` of the main, occupied or first flight seat, else null), `isStatic`, `gravityG` (natural gravity), `forward`/`up`/`right` (world unit vectors), `angularVelocity` (rad/s), `linearVelocity` (m/s), `gyros[]`: `id`, `name`, `forward`/`up`/`right`, `overriding`, `working` |
 
