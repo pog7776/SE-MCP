@@ -93,7 +93,8 @@ def scan_text(result: dict[str, Any]) -> str:
 def entity_line(e: dict[str, Any]) -> str:
     size = "x".join(f"{s:.0f}" for s in e["size"])
     moving = f", moving {e['speed']:.1f} m/s" if e.get("speed", 0) > 0.1 else ""
-    name = e.get("name") or e["type"]
+    # The game prefixes player names with an icon glyph from Unicode's private-use area; drop those.
+    name = re.sub("[-]", "", e.get("name") or "").strip() or e["type"]
     return f"{name} ({e['type']}, {e['relation']}) {e['distance']:.0f} m away, {size} m{moving}"
 
 
