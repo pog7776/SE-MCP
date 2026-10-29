@@ -52,6 +52,14 @@ namespace SEMcp.Host
                 ?? throw new RpcException(ErrorKind.InvalidParams, $"'{block.CustomName}' has no toolbar");
         }
 
+        private static bool IsShipTool(MyDefinitionBase definition)
+        {
+            if (definition is Sandbox.Definitions.MyWeaponBlockDefinition)
+                return true;
+            string type = definition.Id.TypeId.ToString();
+            return type.EndsWith("_Drill") || type.EndsWith("_ShipWelder") || type.EndsWith("_ShipGrinder");
+        }
+
         private static int Index(JsonObject p)
         {
             if (p["index"] != null)
@@ -138,8 +146,10 @@ namespace SEMcp.Host
                 var all = Sandbox.Definitions.MyDefinitionManager.Static.GetAllDefinitions()
                     .Where(d => d.Public && string.Equals(d.DisplayNameText, itemName.Trim(), StringComparison.OrdinalIgnoreCase))
                     .ToList();
-                var pick = all.OfType<Sandbox.Definitions.MyWeaponItemDefinition>().Cast<MyDefinitionBase>().FirstOrDefault()
-                    ?? all.OfType<Sandbox.Definitions.MyCubeBlockDefinition>().OrderBy(d => d.CubeSize == MyCubeSize.Large ? 0 : 1).Cast<MyDefinitionBase>().FirstOrDefault()
+                // On a ship's toolbar, blocks of the ship's own grid size come first (its drills, guns...).
+                var size = (toolbar.Owner as MyCubeBlock)?.CubeGrid.GridSizeEnum ?? MyCubeSize.Large;
+                var pick = (toolbar.ToolbarType == MyToolbarType.Character ? all.OfType<Sandbox.Definitions.MyWeaponItemDefinition>().Cast<MyDefinitionBase>().FirstOrDefault() : null)
+                    ?? all.OfType<Sandbox.Definitions.MyCubeBlockDefinition>().OrderBy(d => d.CubeSize == size ? 0 : 1).Cast<MyDefinitionBase>().FirstOrDefault()
                     ?? all.FirstOrDefault()
                     ?? throw new RpcException(ErrorKind.NotFound, $"Nothing called '{itemName}' (use the in-game name, e.g. 'Elite Grinder')");
                 p["definitionId"] = pick.Id.ToString().Replace("MyObjectBuilder_", "");
@@ -151,7 +161,12 @@ namespace SEMcp.Host
                 if (!MyDefinitionId.TryParse(defText.StartsWith("MyObjectBuilder_") ? defText : "MyObjectBuilder_" + defText, out var defId)
                     || !Sandbox.Definitions.MyDefinitionManager.Static.TryGetDefinition(defId, out VRage.Game.MyDefinitionBase definition))
                     throw new RpcException(ErrorKind.NotFound, $"No definition '{defText}'");
-                var defItem = MyToolbarItemFactory.CreateToolbarItem(MyToolbarItemFactory.ObjectBuilderFromDefinition(definition))
+                // On a ship toolbar, a gun or ship tool block becomes a "select this weapon" slot (fire/use with the
+                // mouse), like the game's own drills/welders/guns slots; anything else is a block to build.
+                var builder0 = toolbar.ToolbarType != MyToolbarType.Character && IsShipTool(definition)
+                    ? new MyObjectBuilder_ToolbarItemWeapon { DefinitionId = definition.Id }
+                    : MyToolbarItemFactory.ObjectBuilderFromDefinition(definition);
+                var defItem = MyToolbarItemFactory.CreateToolbarItem(builder0)
                     ?? throw new RpcException(ErrorKind.InvalidParams, $"'{definition.DisplayNameText}' can't go on a toolbar");
                 if (!defItem.AllowedInToolbarType(toolbar.ToolbarType))
                     throw new RpcException(ErrorKind.InvalidParams, $"'{definition.DisplayNameText}' isn't allowed on a {toolbar.ToolbarType} toolbar");
