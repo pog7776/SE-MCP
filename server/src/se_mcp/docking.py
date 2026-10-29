@@ -39,6 +39,9 @@ def clamp_length(a: Vec, limit: float) -> Vec:
     return scale(a, limit / n) if n > limit else a
 
 
+MIN_OVERRIDE = 0.015
+
+
 def thrust_split(force: Vec, thrusters: list[dict[str, Any]]) -> dict[str, float]:
     """Override fraction per thruster so the ship pushes with `force` (N): thrusters are grouped by the way they
     push; each group whose direction has a positive share of the force gets that share over its total thrust."""
@@ -56,6 +59,9 @@ def thrust_split(force: Vec, thrusters: list[dict[str, Any]]) -> dict[str, float
     for d, total, ids in groups:
         share = dot(force, d)
         frac = min(1.0, share / total) if share > 0 else 0.0
+        # Thrusters ignore tiny overrides (below ~1%), which stalls slow touchdowns: lift small asks to 1.5%.
+        if 0.001 < frac < MIN_OVERRIDE:
+            frac = MIN_OVERRIDE
         for i in ids:
             out[i] = round(frac, 4)
     return out
@@ -142,7 +148,8 @@ class ConnectorPilot:
             # Stall: no progress for 3 s while still off the mark means we're pushing against something.
             if length(error) < best - 0.05:
                 best, best_at = length(error), now
-            elif now - best_at > 3 and length(error) > tolerance:
+            # (Only when clearly off: within a few cm the push is tiny and progress is naturally slow.)
+            elif now - best_at > 3 and length(error) > max(0.25, 3 * tolerance):
                 raise StallError(f"stopped closing in {length(error):.2f} m from the mark: something is in the way")
             if now > end:
                 raise TimeoutError(f"still {length(error):.2f} m and {math.degrees(angle):.1f} deg off after {timeout_s:.0f} s")
