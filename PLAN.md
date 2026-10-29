@@ -217,7 +217,7 @@ Client config (README):
 2. ✅ **See the world**: `session.info`, `player.context`, `grids.list`, `grid.get`, `blocks.list`, `block.get`, `groups.list`, `character.status`, `inventory.get`, and screenshots (window capture first, in-engine next). Matching tools, name resolution, the current-grid default. (Screenshots are window capture via PrintWindow. In-engine capture comes in M6.)
 3. ✅ **Control**: `block.action`, `block.set_property`, set name/custom data, group actions, `notify`, `readOnly`, access + range checks, `production.get`.
 4. ✅ **Programmable blocks**: `pb.get` / `pb.set_code` / `pb.recompile` / `pb.run`, the primer, code backups. Compiler messages come from the host, because the game discards them outside the editor. The loop test passed live: push, run, break, read the errors, fix.
-5. **Autopilot + GPS**: `rc.fly_to` / `rc.stop`, GPS list/add/remove.
+5. ✅ **Autopilot + GPS**: `rc.get` / `rc.fly_to` / `rc.stop`, plus GPS list/add/remove. Flies nose-first automatically: the RC face matching the cockpit is picked, and cryo pods and passenger seats are ignored. Live test passed: 150 m at 15 m/s, stopped about 1 m from the target. Not covered yet: the newer AI blocks (AI Flight (Move), AI Basic (Task), Offensive/Defensive, Recorder). Their ModAPI can't add waypoints, so they're left to the generic block tools for now.
 6. **Vision + sensing**: see through camera blocks without touching the player's view, camera raycasts, sensor blocks, in-engine screenshots. See below.
 7. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
 8. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game. See below.
@@ -266,4 +266,4 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 - Torch/dedicated-server host with per-player auth.
 - Connector/merge docking helpers, inventory transfer, assembler queueing.
 - `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only.
-- Optional antenna-link requirement for remote access (`requireAntennaLink`).
+- **In-world presence (optional):** the assistant reaches ships the way an in-game AI would, not by "god mode". Ideas: require an antenna/broadcast link from the player (suit radio on, ship antenna in range, `requireAntennaLink`); the "AI core" lives in a specific block (a tagged PB or the Automaton block), so damaging it cuts the assistant off; limited range or bandwidth; ships without a link stay unreachable. Off by default, a fun roleplay mode.

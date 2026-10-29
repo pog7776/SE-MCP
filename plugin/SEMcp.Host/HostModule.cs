@@ -37,6 +37,7 @@ namespace SEMcp.Host
                 MaxRangeMeters = config.MaxRangeMeters,
                 ReadOnly = config.ReadOnly,
                 AllowPbCodePush = config.AllowPbCodePush,
+                AllowAutopilot = config.AllowAutopilot,
                 PbCompilerErrors = HostMethods.PbCompilerErrors,
                 Log = message => context.Log(message),
             });

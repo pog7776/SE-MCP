@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 
 from mcp.server.mcpserver import Image, MCPServer
 
+from . import autopilot
 from . import format as fmt
 from . import pb
 from . import resolve
@@ -309,6 +310,77 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         await bridge.call("pb.recompile", {"blockId": target["id"]})
         state = await pb.wait_for_output(bridge, target["id"])
         return f"{pb.status_line(state)}\nOutput:\n{pb.output_text(state)}"
+
+    # --- Autopilot and GPS. ---
+
+    @tool
+    async def fly_to(
+        target: str,
+        speed_limit: float = 50,
+        collision_avoidance: bool = True,
+        precision: bool = False,
+        remote_control: str | None = None,
+        grid: str | None = None,
+    ) -> str:
+        """Fly a ship to a point with its Remote Control's autopilot. Returns once autopilot is engaged; check
+        progress with autopilot_status.
+
+        target: a GPS entry name (see list_gps), a pasted "GPS:Name:x:y:z:" string, or "x, y, z".
+        speed_limit in m/s. precision slows down for an exact stop (docking). The ship flies nose-first
+        (the RC's leading face is set to match the cockpit). remote_control: needed only if there are several."""
+        rc = await autopilot.remote_control(bridge, remote_control, grid)
+        name, coords = await autopilot.resolve_target(bridge, target)
+        rc = await bridge.call("rc.fly_to", {
+            "blockId": rc["id"], "target": coords, "name": name, "speedLimit": speed_limit,
+            "collisionAvoidance": collision_avoidance, "precision": precision,
+        })
+        return "Autopilot engaged.\n" + autopilot.status(rc)
+
+    @tool
+    async def autopilot_status(remote_control: str | None = None, grid: str | None = None) -> str:
+        """Where the autopilot is heading, distance left, speed and settings."""
+        return autopilot.status(await autopilot.remote_control(bridge, remote_control, grid))
+
+    @tool
+    async def stop_autopilot(remote_control: str | None = None, grid: str | None = None) -> str:
+        """Turn the autopilot off (the ship's dampeners then slow it down, if they're on)."""
+        rc = await autopilot.remote_control(bridge, remote_control, grid)
+        rc = await bridge.call("rc.stop", {"blockId": rc["id"]})
+        return "Autopilot off.\n" + autopilot.status(rc)
+
+    @tool
+    async def list_gps(name_contains: str | None = None) -> str:
+        """The player's GPS entries, closest first, with distance and a copyable GPS string."""
+        entries = (await bridge.call("gps.list"))["gps"]
+        if name_contains:
+            entries = [g for g in entries if name_contains.lower() in g["name"].lower()]
+        if not entries:
+            return "No GPS entries" + (f" matching '{name_contains}'." if name_contains else ".")
+        return "\n".join(autopilot.gps_line(g) for g in entries)
+
+    @tool
+    async def add_gps(name: str, coords: str = "here", description: str = "") -> str:
+        """Add a GPS entry for the player. coords: "here" (the player's position), "x, y, z", or a GPS string."""
+        if coords.strip().lower() == "here":
+            context = await bridge.call("player.context")
+            point = context.get("position")
+            if not point:
+                return "Couldn't read the player's position."
+            point = [point["x"], point["y"], point["z"]] if isinstance(point, dict) else point
+        else:
+            parsed = autopilot.parse_coords(coords)
+            if not parsed:
+                return "coords must be 'here', 'x, y, z' or a GPS:Name:x:y:z: string."
+            point = parsed[1]
+        g = await bridge.call("gps.add", {"name": name, "coords": point, "description": description})
+        return "Added " + autopilot.gps_line(g).lstrip("- ")
+
+    @tool
+    async def remove_gps(name: str) -> str:
+        """Delete one of the player's GPS entries by name."""
+        g = await autopilot.find_gps(bridge, name)
+        await bridge.call("gps.remove", {"hash": g["hash"]})
+        return f"Removed GPS '{g['name']}'."
 
     @server.resource("se://pb-primer", name="pb-primer", description="How to write Space Engineers programmable block scripts")
     def pb_primer() -> str:

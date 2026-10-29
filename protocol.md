@@ -126,6 +126,30 @@ In single player, compiling finishes before the call returns.
 
 The Python `write_pb_script` tool saves the previous code to `%AppData%\SpaceEngineers\SEMcp\pb-backups\` before replacing it. The `se://pb-primer` MCP resource explains how PB scripts are written.
 
+## Autopilot and GPS methods (M5)
+
+The `rc.*` methods take `blockId` (a Remote Control) and return its state:
+
+- `id`, `name`, `gridId`, `gridName`, `working`, `autopilot`
+- `flightMode`: Patrol, Circle, OneWay, Track or WorkArea
+- `direction`: the RC face that leads
+- `speedLimit`, `collisionAvoidance`, `dockingMode` (precision)
+- `position`, plus the RC's `forward`/`up`/`right`
+- `frontDirection`: the RC face matching the ship's main (or occupied, or first) cockpit. Cryo chambers and passenger seats don't count. `frontReference` names that cockpit.
+- `speed`, `gravityG`
+- `currentWaypoint`: `name`, `coords`, `distance`
+- `waypoints[]`
+- `remoteControlled`: someone is driving through this RC
+
+| Method | Params | Notes |
+|---|---|---|
+| `rc.get` | `blockId` | |
+| `rc.fly_to` | `blockId`, `target` (`[x,y,z]` or `{x,y,z}`) + `name?`, or `waypoints[]` (`{name?, coords}`); `mode?`=OneWay; `direction?`=auto; `speedLimit?`; `collisionAvoidance?`=true; `precision?`=false | Replaces the waypoints and engages autopilot. Blocked by `readOnly` and `allowAutopilot: false`. A single waypoint needs OneWay mode (game rule). `game_error` if the game won't engage, e.g. while someone remote-controls the RC. Big ships spend a while lining up before they thrust |
+| `rc.stop` | `blockId`, `clearWaypoints?`=false | |
+| `gps.list` | — | `gps[]` for the local player, closest first: `hash`, `name`, `description`, `coords`, `distance`, `showOnHud`, `color` |
+| `gps.add` | `name`, `coords`, `description?`, `showOnHud?`=true | the new entry |
+| `gps.remove` | `hash` or `name` | `removed` |
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host/HostMethods.cs` rather than Core.

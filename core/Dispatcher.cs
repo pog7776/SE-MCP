@@ -25,6 +25,7 @@ namespace SEMcp.Core
             new ControlService(this, access).Register();
             new ProductionService(this, access).Register();
             new ProgrammableBlockService(this, access).Register();
+            new AutopilotService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)
