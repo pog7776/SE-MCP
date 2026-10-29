@@ -101,6 +101,16 @@ namespace SEMcp.Core
             return grids;
         }
 
+        // "Which ship is this grid part of": grids joined by rotors, pistons and hinges, but not ships docked by
+        // connectors. Identified by its biggest grid, so it reads like the ship's name.
+        public static IMyCubeGrid ShipOf(IMyCubeGrid grid)
+        {
+            var grids = grid.GetGridGroup(GridLinkTypeEnum.Mechanical)?.GetGrids(new List<IMyCubeGrid>());
+            if (grids == null || grids.Count == 0)
+                return grid;
+            return grids.OrderByDescending(BlockCount).ThenBy(g => g.EntityId).First();
+        }
+
         public static int BlockCount(IMyCubeGrid grid)
         {
             var blocks = new List<IMySlimBlock>();

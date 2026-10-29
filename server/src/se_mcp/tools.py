@@ -10,6 +10,8 @@ from mcp.server.mcpserver import Image, MCPServer
 
 from . import autopilot
 from . import format as fmt
+from . import items as items_mod
+from . import organizer
 from . import pb
 from . import resolve
 from . import vision
@@ -164,6 +166,112 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         """Assemblers, refineries and survival kits on a ship: producing or not, queues, input/output fill."""
         target = await resolve.grid(bridge, grid)
         return fmt.production(await bridge.call("production.get", {"gridId": target["id"]}))
+
+    # --- Inventory management. Moves go through conveyors, like dragging items in the terminal. ---
+
+    SUIT_WORDS = {"suit", "me", "my suit", "player", "character", "inventory", "my inventory"}
+
+    async def _layout(grid: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+        target = await resolve.grid(bridge, grid)
+        return target, await bridge.call("inventory.layout", {"gridId": target["id"]})
+
+    async def _endpoint(name: str, layout: dict[str, Any], grid: str | None) -> dict[str, Any] | None:
+        """None = the player's suit; else the block's inventories from the layout."""
+        if name.strip().lower() in SUIT_WORDS:
+            return None
+        block = await resolve.block(bridge, name, grid)
+        invs = [i for i in layout["inventories"] if i["blockId"] == block["id"]]
+        if not invs:
+            raise ResolveError(f"'{block.get('name') or name}' has no inventory I can use.")
+        return {"name": invs[0]["name"], "id": block["id"], "inventories": invs}
+
+    @tool
+    async def find_items(item: str, grid: str | None = None) -> str:
+        """Where an item is on a ship: amount per container/block, biggest first. item: e.g. "steel plates", "ice"."""
+        target, layout = await _layout(grid)
+        organizer.annotate(layout)
+        known = {k for i in layout["inventories"] for k in items_mod.item_keys(i["items"])}
+        found = items_mod.match(item, known)
+        if not found:
+            return f"No '{item}' anywhere on {target.get('name') or 'the ship'}."
+        lines = []
+        for t, s in found[:6]:
+            holders = [(i, x["amount"]) for i in layout["inventories"] for x in i["items"] if (x["type"], x["subtype"]) == (t, s)]
+            holders.sort(key=lambda h: -h[1])
+            total = sum(a for _, a in holders)
+            lines.append(f"{items_mod.display(t, s)}: {items_mod.amount_text(total, t)} total")
+            lines += [f"  - {organizer.label(i)}: {items_mod.amount_text(a, t)}" for i, a in holders[:15]]
+        return "\n".join(lines)
+
+    @tool
+    async def move_items(item: str, from_block: str, to_block: str, amount: float | None = None, grid: str | None = None) -> str:
+        """Move items between two inventories, like dragging them in the terminal.
+
+        from_block / to_block: block names or ids, or "suit" for the player's own inventory. amount: count
+        (or kg for ore/ingots); empty = all of it. Block-to-block moves need a conveyor connection. Suit moves
+        need the player next to the block or seated on that ship."""
+        target, layout = await _layout(grid)
+        src = await _endpoint(from_block, layout, grid)
+        dst = await _endpoint(to_block, layout, grid)
+        if src is None:
+            suit = await bridge.call("inventory.get", {"character": True})
+            known = {(t["type"], t["subtype"]) for t in suit["totals"]}
+            where = "your suit"
+        else:
+            known = {k for i in src["inventories"] for k in items_mod.item_keys(i["items"])}
+            where = src["name"]
+        t, s = items_mod.resolve_one(item, known, where)
+
+        params: dict[str, Any] = {"type": t, "subtype": s}
+        if amount is not None:
+            params["amount"] = amount
+        if src is None:
+            params["fromCharacter"] = True
+        else:
+            # Take from whichever inventory holds it (production blocks: prefer the output).
+            holding = [i for i in src["inventories"] if (t, s) in items_mod.item_keys(i["items"])]
+            holding.sort(key=lambda i: i.get("role") != "output")
+            params["fromBlockId"], params["fromIndex"] = src["id"], holding[0]["index"]
+        if dst is None:
+            params["toCharacter"] = True
+        else:
+            params["toBlockId"], params["toIndex"] = dst["id"], dst["inventories"][0]["index"]
+
+        r = await bridge.call("inventory.transfer", params)
+        name = items_mod.display(t, s)
+        moved = items_mod.amount_text(r["moved"], t)
+        text = f"Moved {moved} {name}: {r['from']} -> {r['to']}."
+        if r["reason"]:
+            text = (f"Moved {moved} of {items_mod.amount_text(r['requested'], t)} {name}. " if r["moved"] else "Nothing moved. ") + r["reason"] + "."
+        return text + f" {items_mod.amount_text(r['leftInSource'], t)} left in {r['from']}."
+
+    @tool
+    async def organize_inventory(grid: str | None = None, apply: bool = False) -> str:
+        """Tidy a ship's inventories. First call (apply=False) only shows the plan; call again with
+        apply=True to carry it out (show the player the plan and get a yes first).
+
+        Containers tagged in their name or CustomData get their category: [Ore] [Ice] [Ingots] [Components]
+        [Ammo] [Tools] [Bottles] [Consumables]; [Ignore] keeps a block out of it. Stray items in connectors
+        and production outputs go to storage. Empty reactors get uranium and empty O2/H2 generators get ice."""
+        target, layout = await _layout(grid)
+        p = organizer.plan(layout)
+        text = organizer.describe(p, layout["gridName"])
+        if not apply or not p.moves:
+            return text + ("\n(Plan only. Run again with apply=True to do it.)" if p.moves else "")
+        done, problems = [], []
+        for m in p.moves:
+            try:
+                r = await bridge.call("inventory.transfer", organizer.transfer_params(m))
+            except BridgeError as e:
+                problems.append(f"{m.describe()}: {e}")
+                continue
+            if r["moved"]:
+                done.append(f"{items_mod.amount_text(r['moved'], m.type)} {items_mod.display(m.type, m.subtype)} -> {organizer.label(m.dest)}")
+            if r["reason"] and (m.amount is None or r["moved"] < (m.amount or 0)):
+                problems.append(f"{items_mod.display(m.type, m.subtype)} from {organizer.label(m.source)}: {r['reason']}")
+        lines = [f"Organized {layout['gridName']}: {len(done)} move(s) done."] + [f"- {d}" for d in done]
+        lines += [f"! {x}" for x in problems] + [f"Note: {n}" for n in p.notes]
+        return "\n".join(lines)
 
     # --- Control. These change the game like a player using the terminal would. ---
 

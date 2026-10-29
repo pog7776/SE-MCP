@@ -158,6 +158,13 @@ The `rc.*` methods take `blockId` (a Remote Control) and return its state:
 | `camera.raycast` | `blockId`; `distance?`=2000 with `pitch?`/`yaw?` (deg, within the cone), or `target` `[x,y,z]` | `camera`, `enabledRaycast` (true if this call turned raycasting on, which starts the charge), `scanned`, `distance`, `hit` (null for nothing, else `id`, `name`, `type`, `relation`, `position`, `hitPosition`, `distance`, `size`, `speed`, `velocity`), `scanRangeLeft`, `msUntilScan`, `coneLimitDeg`, `maxDistance`. Write method (it changes `EnableRaycast` and uses charge) |
 | `sensors.get` | `gridId` or `blockId` | `sensors[]`: `id`, `name`, `working`, `active`, `extents` (left, right, top, bottom, front, back in m), `maxRange`, `detects[]`, `relations[]`, `detected[]` (as `hit` above) |
 
+## Inventory methods (M7)
+
+| Method | Params | Returns |
+|---|---|---|
+| `inventory.layout` | `gridId` | `gridName`, `shipId`, and `inventories[]` for every usable inventory on the construct, docked ships included. Each has: `blockId`, `name`, `type`, `subtype`, `gridName`, `shipId`/`shipName`, `customData` (only when it contains `[`), `index`, `role` (`input`/`output` for production blocks), `working`, `conveyorGroup`, `volumeL`, `maxVolumeL`, `items[]`. `shipId` is the mechanical group (grids joined by rotors and pistons, not by connectors), named after its biggest grid. Inventories with the same `conveyorGroup` are joined by conveyors |
+| `inventory.transfer` | `fromBlockId` + `fromIndex?`=0, or `fromCharacter: true`; `toBlockId` + `toIndex?`=0, or `toCharacter: true`; `type` (short, e.g. `Ingot`); `subtype`; `amount?` (default all) | `item`, `from`, `to`, `requested`, `moved`, `leftInSource`, `reason` (why some or all didn't move: not connected, conveyor too small, not accepted, destination full, none there). Block-to-block moves go through conveyors (`TransferItemTo` with connection checks). Moves to or from the suit need the player within 6 m of the block, or seated on that ship. Server-side only: `feature_disabled` on a multiplayer client |
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.

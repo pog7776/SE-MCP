@@ -79,3 +79,11 @@ async def test_reconnects_after_game_restart():
         bridge._port = game.port  # the "restarted game" listens on a new port in the test
         assert (await bridge.call("ping"))["world"] == "Test World"
         await bridge.close()
+
+
+async def test_every_tool_declares_fair_play_metadata():
+    from se_mcp.fair import TOOLS
+
+    names = {t.name for t in await create_server(Bridge(port=1, token="x")).list_tools()}
+    assert names - TOOLS.keys() == set(), "add these tools to se_mcp/fair.py"
+    assert TOOLS.keys() - names == set(), "fair.py lists tools that no longer exist"
