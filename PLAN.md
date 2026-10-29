@@ -337,6 +337,11 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
 - Torch/dedicated-server host with per-player auth.
 - `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only. Shares its compiler plumbing with M11's runtime app authoring.
 - **Creative/admin tools** (the debug menu, exposed): teleport the player or a ship (to a planet, a GPS, a grid), spawn items or blueprints, set weather (`IMyWeatherEffects.SetWeather`) and time of day, and so on. Allowed only when the world is creative or the player has admin creative tools on. Tagged "omniscient"/cheat in fair play.
+- **Flight paths and maneuvers** (after docking and basic flight are solid): a modular route system.
+  - Routes: named, saved lists of waypoints (GPS or relative offsets), each with speed, orientation and actions on arrival (wait, dock, run a timer). Driven by the RC autopilot or our own steering.
+  - Maneuvers: reusable building blocks such as orbit a point, strafe run, hold station, approach and dock, patrol loop. Routes are built from them.
+  - Formations: ships hold offsets relative to a leader (wedge, line, escort).
+  - Definitions: bundle a few standard ones, and let the agent define, save and reuse its own (JSON, stored like PB backups). Built-in ones can come later.
 - AI blocks: "follow me" (AI Basic Task mission) and route recording/replay (AI Recorder); writing AI Flight waypoints through game internals.
 - Production: reorder queue entries (`MoveQueueItemRequest`), refinery ore priority.
 - **In-world presence (optional):** the assistant reaches ships the way an in-game AI would, not by "god mode". Ideas: require an antenna/broadcast link from the player (suit radio on, ship antenna in range, `requireAntennaLink`); the "AI core" lives in a specific block (a tagged PB or the Automaton block), so damaging it cuts the assistant off; limited range or bandwidth; ships without a link stay unreachable. Off by default, a fun roleplay mode.
