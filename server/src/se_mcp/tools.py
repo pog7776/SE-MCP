@@ -22,6 +22,7 @@ from . import ore as ore_mod
 from . import organizer
 from . import production as production_mod
 from . import radio
+from . import surface as surface_mod
 from . import toolbar as toolbar_mod
 from . import pb
 from . import resolve
@@ -1415,6 +1416,134 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         if not docked:
             return f"Lined up but the connector didn't lock ({r['after']})."
         return f"Docked {mine['gridName']}'s {c['name']} to {t['name']} on {theirs['gridName']}."
+
+    # --- Surfaces: height maps and landing on landing gear. ---
+
+    async def _frame(grid_id: str, toward: Vec) -> tuple[Vec, Vec, Vec]:
+        """A surface frame on a grid: normal = the grid axis closest to `toward`, plus the two other axes."""
+        m = await bridge.call("grid.motion", {"gridId": grid_id})
+        axes = [m["forward"], m["up"], m["right"]]
+        k = max(range(3), key=lambda i: abs(docking.dot(axes[i], toward)))
+        n = axes[k] if docking.dot(axes[k], toward) > 0 else docking.scale(axes[k], -1)
+        rest = [axes[i] for i in range(3) if i != k]
+        return n, rest[0], rest[1]
+
+    @tool
+    async def surface_map(around: str, grid: str | None = None, side: str | None = None, size_m: float = 20,
+                          step_m: float = 1.0) -> str:
+        """Measure a ship's or station's surface: a height map around a block, as a grid of heights in meters
+        (0-9, + for 10 and up, - below the block's level, . for nothing there; @ marks the block). side: which
+        face of the grid ("up", "down", "forward", ...); default: the face the block sits on, judged from the
+        grid's center. Letters mark blocks it's unsafe to land on or beside: T thruster, X weapon, D/G/W drill,
+        grinder, welder, H door, M rotor/hinge/piston. Good for finding flat spots, checking clearances, and seeing
+        what sticks out."""
+        target = await resolve.grid(bridge, grid)
+        block = await resolve.block(bridge, around, grid)
+        m = await bridge.call("grid.motion", {"gridId": target["id"]})
+        b = await bridge.call("block.position", {"blockId": block["id"]})
+        if side:
+            axes = {"forward": m["forward"], "backward": docking.scale(m["forward"], -1), "up": m["up"],
+                    "down": docking.scale(m["up"], -1), "right": m["right"], "left": docking.scale(m["right"], -1)}
+            if side.lower() not in axes:
+                return "side must be up, down, forward, backward, left or right (the grid's own axes)."
+            toward = axes[side.lower()]
+        else:
+            toward = docking.sub(b["position"], m["center"])
+        n, u, v = await _frame(target["id"], toward)
+        half = max(2.0, size_m / 2)
+        hm = await surface_mod.scan(bridge, b["position"], n, u, v, half, half, step_m)
+        return (f"Height map of {target.get('name')} around {block.get('name') or around}: rows along one axis, "
+                f"columns along the other, {step_m:g} m cells, heights relative to the block.\n" + surface_mod.render(hm, (0, 0)))
+
+    @tool
+    async def land(on: str, grid: str | None = None, near: str | None = None, max_speed: float = 1.5,
+                   search_m: float = 30) -> str:
+        """Land a ship on another ship or station with its landing gear / magnetic plates and lock them. Finds a
+        spot where the whole ship fits flat (height-map of the surface, nothing taller than the spot under its
+        footprint, and no thrusters, weapons, tools, doors or joints under it or within 2 m), flies up over everything on the way, slides over, descends slowly and locks. near: a block
+        on the target to land close to (default: below the ship); search_m: how far around it to look (max ~60).
+        Undocks first if it's on a connector."""
+        ship = await resolve.grid(bridge, grid)
+        target = await resolve.grid(bridge, on)
+        mine = await bridge.call("dock.get", {"gridId": ship["id"]})
+        gears = [g for g in mine["landingGear"] if g["working"]]
+        if not gears:
+            return f"{mine['gridName']} has no working landing gear or magnetic plates."
+        # Gear groups by the way they face; prefer the group facing the ship's belly, then the biggest.
+        motion = await bridge.call("grid.motion", {"gridId": ship["id"], "thrusters": True})
+        belly = docking.scale(motion["cockpit"]["up"], -1) if motion.get("cockpit") else docking.gear_face(gears[0])
+        groups: list[list[dict[str, Any]]] = []
+        for g in gears:
+            for grp in groups:
+                if docking.dot(docking.gear_face(grp[0]), docking.gear_face(g)) > 0.98:
+                    grp.append(g)
+                    break
+            else:
+                groups.append([g])
+        group = max(groups, key=lambda grp: (docking.dot(docking.gear_face(grp[0]), belly) > 0.9, len(grp)))
+        ref = group[0]
+        face = docking.gear_face(ref)
+        n, u, v = await _frame(target["id"], docking.scale(face, -1))
+        if docking.dot(face, n) > -0.98:
+            return (f"The {ref['name']} faces {math.degrees(math.acos(max(-1, min(1, -docking.dot(face, n))))):.0f} deg off "
+                    f"{target.get('name')}'s nearest face; turn the ship to line them up first (landing keeps orientation).")
+        if near:
+            nb = await resolve.block(bridge, near, on)
+            origin = (await bridge.call("block.position", {"blockId": nb["id"]}))["position"]
+        else:
+            down = await bridge.call("los.check", {"from": ref["position"], "to": docking.add(ref["position"], face, 60),
+                                                   "skip": 0.3, "ignoreId": ship["id"]})
+            if not down.get("hit") or down["hit"].get("entityId") not in (target["id"], None):
+                return f"{target.get('name')} isn't below the ship's gear (within 60 m). Fly over it first, or give near=."
+            origin = down["hit"]["position"]
+        rel = [docking.sub(c, ref["position"]) for c in motion["corners"]]
+        box = (min(docking.dot(r, u) for r in rel), max(docking.dot(r, u) for r in rel),
+               min(docking.dot(r, v) for r in rel), max(docking.dot(r, v) for r in rel))
+        reach = max(5.0, min(search_m, 65.0))
+        half_u = max(abs(box[0]), abs(box[1])) + reach
+        half_v = max(abs(box[2]), abs(box[3])) + reach
+        hm = await surface_mod.scan(bridge, origin, n, u, v, half_u, half_v, 1.0, ignore_id=ship["id"])
+        a0, b0, h0 = hm.coords(ref["position"])
+        others = [(docking.dot(docking.sub(g["position"], ref["position"]), u), docking.dot(docking.sub(g["position"], ref["position"]), v))
+                  for g in group[1:]]
+        spots = surface_mod.find_spots(hm, box, others, (a0, b0))
+        if not spots:
+            return (f"No spot on {target.get('name')} within ~{reach:.0f} m where the ship fits: needs level, hazard-free "
+                    f"hull under its {box[1] - box[0]:.0f} x {box[3] - box[2]:.0f} m footprint. Try near= another block or a bigger search_m.")
+        spot = spots[0]
+        transit = max(surface_mod.route_clearance(hm, box, (a0, b0), (spot["a"], spot["b"])), h0) + 3
+
+        connected = [c for c in mine["connectors"] if c["status"] == "Connected"]
+        log: list[str] = []
+        pilot = docking.GearPilot(bridge, ship["id"], ref["id"], {"position": hm.point(a0, b0), "forward": n}, log=log.append,
+                                  max_speed=max_speed, max_accel=await _safe_accel(ship["id"]))
+        landed = False
+        try:
+            for c in connected:
+                await bridge.call("dock.connector", {"blockId": c["id"], "action": "disconnect"})
+            if any(g["locked"] for g in gears):
+                await bridge.call("dock.gear", {"gridId": ship["id"], "action": "unlock"})
+            await pilot.start()
+            await pilot.hold(transit, tolerance=0.4, timeout_s=120)
+            pilot.target = {"position": hm.point(spot["a"], spot["b"]), "forward": n}
+            await pilot.hold(transit, tolerance=0.3, timeout_s=180)
+            pilot.target = {"position": hm.point(spot["a"], spot["b"], spot["height"]), "forward": n}
+            try:
+                await pilot.hold(0.0, tolerance=0.05, timeout_s=180, slow_within=3.0, slow_speed=0.3,
+                                 until=lambda g: g["status"] == "ReadyToLock")
+            except docking.StallError:
+                pass
+            if (await pilot.connector())["status"] == "ReadyToLock":
+                r = await bridge.call("dock.gear", {"gridId": ship["id"], "action": "lock"})
+                landed = any(g["mode"] == "Locked" for g in r["changed"])
+        except Exception as e:
+            return f"Landing stopped: {e}. Overrides released, dampeners on.\n" + "\n".join(log[-4:])
+        finally:
+            await pilot.stop(landed)
+        if not landed:
+            return "Came down on the spot but the gear didn't lock (not ReadyToLock). Overrides released, dampeners on."
+        return (f"Landed {mine['gridName']} on {target.get('name')}: {', '.join(g['name'] for g in group)} locked, "
+                f"{spot['distance']:.0f} m from where it started, over nothing taller than {transit - 3:.1f} m on the way.")
 
     # --- Ore detection. ---
 

@@ -575,6 +575,13 @@ namespace SEMcp.Host
                     .ToList(),
                 // For flying with thruster overrides (docking): only the ship itself, not ships docked to it.
                 mass = p.Bool("thrusters", false) ? ShipMass(grid) : (double?)null,
+                // The ship's own shape (mechanical group, not docked ships): each grid's oriented box as 8 world corners.
+                corners = !p.Bool("thrusters", false) ? null : Mechanical(grid).SelectMany(g =>
+                {
+                    var local = g.LocalAABB;
+                    var wm = g.WorldMatrix;
+                    return local.GetCorners().Select(c => Vec(Vector3D.Transform((Vector3D)c, wm)));
+                }).ToList(),
                 dampeners = p.Bool("thrusters", false) ? (bool?)ShipController(grid)?.DampenersOverride : null,
                 thrusters = !p.Bool("thrusters", false) ? null : Mechanical(grid)
                     .SelectMany(g => g.GetFatBlocks<IMyThrust>())

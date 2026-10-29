@@ -26,6 +26,87 @@ namespace SEMcp.Core.Services
             dispatcher.Register("laser.connect", LaserConnect);
             dispatcher.Register("laser.idle", LaserIdle);
             dispatcher.Register("los.check", LineOfSight);
+            dispatcher.Register("surface.scan", SurfaceScan);
+            dispatcher.Register("block.position", BlockPosition);
+        }
+
+        // A height map: rays straight down (along -normal) on a grid of points in the plane through origin spanned
+        // by u and v. Each cell is the height of the first thing hit above origin along normal, or null for nothing
+        // within the depth. One call instead of thousands of los.check round trips. Physics only (grids), no voxels.
+        private object SurfaceScan(JsonObject p)
+        {
+            dispatcher.RequireSession();
+            var origin = Point(p, "origin") ?? throw new RpcException(ErrorKind.InvalidParams, "origin is required");
+            var n = Vector3D.Normalize(Point(p, "normal") ?? throw new RpcException(ErrorKind.InvalidParams, "normal is required"));
+            var u = Vector3D.Normalize(Point(p, "u") ?? throw new RpcException(ErrorKind.InvalidParams, "u is required"));
+            var v = Vector3D.Normalize(Point(p, "v") ?? throw new RpcException(ErrorKind.InvalidParams, "v is required"));
+            double u0 = p.Number("u0", -10), u1 = p.Number("u1", 10), v0 = p.Number("v0", -10), v1 = p.Number("v1", 10);
+            double step = Math.Max(0.25, p.Number("step", 1)), top = p.Number("top", 20), depth = p.Number("depth", 10);
+            int nu = (int)Math.Floor((u1 - u0) / step) + 1, nv = (int)Math.Floor((v1 - v0) / step) + 1;
+            if ((long)nu * nv > 20000)
+                throw new RpcException(ErrorKind.InvalidParams, $"{nu}x{nv} cells is too many (max 20000): use a bigger step or a smaller area");
+            var ignore = new HashSet<long>();
+            if (p["ignoreId"] != null && MyAPIGateway.Entities.GetEntityById(p.Id("ignoreId")) is VRage.Game.ModAPI.IMyCubeGrid ig)
+                foreach (var g in ig.GetGridGroup(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical)?.GetGrids(new List<VRage.Game.ModAPI.IMyCubeGrid>()) ?? new List<VRage.Game.ModAPI.IMyCubeGrid> { ig })
+                    ignore.Add(g.EntityId);
+            int layer = (int)p.Number("layer", 30);
+            var hits = new List<VRage.Game.ModAPI.IHitInfo>();
+            var rows = new List<double?[]>();
+            var hazards = new List<string>();  // "i,j,code" for hazardous blocks only, so the reply stays small
+            for (int i = 0; i < nu; i++)
+            {
+                var row = new double?[nv];
+                for (int j = 0; j < nv; j++)
+                {
+                    var q = origin + u * (u0 + i * step) + v * (v0 + j * step);
+                    hits.Clear();
+                    MyAPIGateway.Physics.CastRay(q + n * top, q - n * depth, hits, layer);
+                    var hit = hits.FirstOrDefault(h => h.HitEntity == null || !ignore.Contains(h.HitEntity.EntityId));
+                    row[j] = hit == null ? (double?)null : Math.Round(Vector3D.Dot(hit.Position - origin, n), 2);
+                    if (hit?.HitEntity is VRage.Game.ModAPI.IMyCubeGrid grid)
+                    {
+                        var slim = grid.GetCubeBlock(grid.WorldToGridInteger(hit.Position - n * 0.05));
+                        string code = slim == null ? null : Hazard(slim);
+                        if (code != null)
+                            hazards.Add($"{i},{j},{code}");
+                    }
+                }
+                rows.Add(row);
+            }
+            return new { u0, v0, step, nu, nv, heights = rows, hazards };
+        }
+
+        // Blocks that are bad to land on or next to: thrusters (exhaust), tools and weapons, moving doors and joints.
+        private static string Hazard(VRage.Game.ModAPI.IMySlimBlock slim)
+        {
+            switch (slim.FatBlock)
+            {
+                case IMyThrust _: return "T";
+                case IMyUserControllableGun _: return "X";
+                case IMyShipDrill _: return "D";
+                case IMyShipGrinder _: return "G";
+                case IMyShipWelder _: return "W";
+                case IMyDoor _: return "H";
+                case IMyMechanicalConnectionBlock _: return "M";
+                case IMyMotorRotor _: return "M";
+                case IMyPistonTop _: return "M";
+                default: return null;
+            }
+        }
+
+        // Where a block is and how it's turned (any terminal block).
+        private object BlockPosition(JsonObject p)
+        {
+            var b = access.Block(p.Id("blockId"));
+            return new
+            {
+                id = Dto.Id(b.EntityId),
+                name = b.CustomName,
+                gridId = Dto.Id(b.CubeGrid.EntityId),
+                position = SensingService.Vec(b.GetPosition(), 2),
+                forward = SensingService.Vec(b.WorldMatrix.Forward, 4),
+                up = SensingService.Vec(b.WorldMatrix.Up, 4),
+            };
         }
 
         // What a straight line between two points hits first (physics raycast), skipping `skip` meters at each end so
@@ -40,7 +121,12 @@ namespace SEMcp.Core.Services
             double length = Vector3D.Distance(from, to);
             var hits = new List<VRage.Game.ModAPI.IHitInfo>();
             MyAPIGateway.Physics.CastRay(from + dir * skip, to - dir * skip, hits, (int)p.Number("layer", 30));
-            var hit = hits.FirstOrDefault();
+            // ignoreId: look through one ship (all its grids), e.g. the ship whose landing spot is being checked.
+            var ignore = new HashSet<long>();
+            if (p["ignoreId"] != null && MyAPIGateway.Entities.GetEntityById(p.Id("ignoreId")) is VRage.Game.ModAPI.IMyCubeGrid ig)
+                foreach (var g in ig.GetGridGroup(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical)?.GetGrids(new List<VRage.Game.ModAPI.IMyCubeGrid>()) ?? new List<VRage.Game.ModAPI.IMyCubeGrid> { ig })
+                    ignore.Add(g.EntityId);
+            var hit = hits.FirstOrDefault(h => h.HitEntity == null || !ignore.Contains(h.HitEntity.EntityId));
             // Rock first if it comes before any physics hit (asteroids away from ships have no physics to hit).
             var rock = dispatcher.Context.VoxelHit(from + dir * skip, to - dir * skip);
             if (rock != null && (hit == null || Vector3D.Distance(from, rock.Item2) < Vector3D.Distance(from, hit.Position)))

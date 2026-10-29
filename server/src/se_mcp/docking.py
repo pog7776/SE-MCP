@@ -61,6 +61,10 @@ def thrust_split(force: Vec, thrusters: list[dict[str, Any]]) -> dict[str, float
     return out
 
 
+class StallError(RuntimeError):
+    """The ship stopped getting closer to its mark: it's touching something."""
+
+
 # Ships that were parked with their thrusters off when undock released them, so dock can park them the same way.
 PARKED_WITH_THRUSTERS_OFF: set[str] = set()
 
@@ -98,14 +102,18 @@ class ConnectorPilot:
         await self.bridge.call("flight.set", params)
 
     async def hold(self, distance: float, tolerance: float = 0.15, timeout_s: float = 90,
-                   until: Callable[[dict[str, Any]], bool] | None = None) -> dict[str, Any]:
+                   until: Callable[[dict[str, Any]], bool] | None = None,
+                   slow_within: float = 0.0, slow_speed: float = 0.3) -> dict[str, Any]:
         """Fly the connector to `distance` meters out along the target's axis; return the connector when there
-        (position within tolerance, nearly stopped and lined up) or when until(connector) is true."""
+        (position within tolerance, nearly stopped and lined up) or when until(connector) is true.
+        Within slow_within meters of the mark, speed is capped at slow_speed (touchdowns). Raises StallError if
+        it stops closing in for 3 s while still off the mark: something is in the way."""
         point = add(self.target["position"], self.target["forward"], distance)
         facing = scale(self.target["forward"], -1)
         loop = asyncio.get_running_loop()
         end = loop.time() + timeout_s
         last_log = 0.0
+        best, best_at = math.inf, loop.time()
         while True:
             m = await self.bridge.call("grid.motion", {"gridId": self.ship_id, "thrusters": True})
             conn = await self.connector()
@@ -117,7 +125,8 @@ class ConnectorPilot:
             # Translation.
             error = sub(point, conn["position"])
             velocity = m["linearVelocity"]
-            want_v = clamp_length(scale(error, 0.4), self.max_speed)
+            limit = slow_speed if length(error) < slow_within else self.max_speed
+            want_v = clamp_length(scale(error, 0.4), limit)
             accel = clamp_length(scale(sub(want_v, velocity), 1.2), self.max_accel)
             thrust = thrust_split(scale(accel, m["mass"]), m["thrusters"])
             await self.bridge.call("flight.set", {"thrusters": thrust, "gyros": gyros})
@@ -130,6 +139,11 @@ class ConnectorPilot:
                 return conn
             if length(error) < tolerance and length(velocity) < 0.08 and math.degrees(angle) < 1.0:
                 return conn
+            # Stall: no progress for 3 s while still off the mark means we're pushing against something.
+            if length(error) < best - 0.05:
+                best, best_at = length(error), now
+            elif now - best_at > 3 and length(error) > tolerance:
+                raise StallError(f"stopped closing in {length(error):.2f} m from the mark: something is in the way")
             if now > end:
                 raise TimeoutError(f"still {length(error):.2f} m and {math.degrees(angle):.1f} deg off after {timeout_s:.0f} s")
 
@@ -176,3 +190,35 @@ def pick(connectors: list[dict[str, Any]], name: str | None, want_free: bool, wh
     if not free:
         raise ValueError(f"No free connector on {what}.")
     return free[0]
+
+
+async def footprint_obstacles(bridge: Bridge, ship_id: str, gear: dict[str, Any], spot: Vec, normal: Vec,
+                              clearance: float, margin: float = 1.0, step: float = 1.0) -> list[dict[str, Any]]:
+    """What stands in the way if the ship (orientation unchanged) had its gear at spot + normal x clearance.
+
+    The ship's box corners are taken relative to the gear and moved to the spot; the patch they cover on the
+    surface plane (plus margin) is sampled with rays that look through the ship itself. Anything rising higher
+    than the gear's height minus 0.3 m is in the way (the gear is the lowest part when landing)."""
+    m = await bridge.call("grid.motion", {"gridId": ship_id, "thrusters": True})
+    rel = [sub(c, gear["position"]) for c in m["corners"]]
+    u = normalize(cross(normal, [1.0, 0.0, 0.0] if abs(normal[0]) < 0.9 else [0.0, 1.0, 0.0]))
+    v = cross(normal, u)
+    us, vs = [dot(r, u) for r in rel], [dot(r, v) for r in rel]
+    top = max(dot(r, normal) for r in rel) + clearance + 2
+    found: list[dict[str, Any]] = []
+    a = min(us) - margin
+    while a <= max(us) + margin:
+        b = min(vs) - margin
+        while b <= max(vs) + margin:
+            q = add(add(spot, u, a), v, b)
+            r = await bridge.call("los.check", {"from": add(q, normal, top), "to": add(q, normal, -1.0), "skip": 0.0,
+                                                "ignoreId": ship_id})
+            h = r.get("hit")
+            if h:
+                height = top - h["fromStart"]
+                if height > clearance - 0.3:
+                    found.append({"height": round(height, 2), "at": [round(a, 1), round(b, 1)],
+                                  "what": (h.get("block") or {}).get("name") or h.get("entity")})
+            b += step
+        a += step
+    return found

@@ -133,3 +133,8 @@ TOOLS.update({
 TOOLS.update({
     "ship_hud": Fairness("own", None, "other ships: needs antenna link"),
 })
+
+TOOLS.update({
+    "surface_map": Fairness("own", None, "raycasts against grids; other ships' surfaces: fair mode should limit to what cameras could see"),
+    "land": Fairness("own", "construct", "the target surface is measured with raycasts; fine for our own ships/stations"),
+})

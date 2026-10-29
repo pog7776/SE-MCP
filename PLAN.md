@@ -286,6 +286,12 @@ Remaining items, reordered by value for effort, quick wins first and docking las
 
 13. ✅ **Ship HUD** (`ship_hud`): one ship's systems at a glance for agents, ship-only (docked ships separate), subgrids with their rotor/hinge/piston joint and state, and warnings (thrusters off, dampeners off, recharge-only batteries, no fuel, overrides active...). Later: deeper subgrid tools (move a rotor/hinge/piston to an angle or extension, list blocks per subgrid).
 
+14. **Landing on gear + surface measuring** (in progress):
+    - ✅ `surface_map`: height map of a grid face in one game-side scan (`surface.scan`, ~4000 rays in 0.05 s), with hazard letters (T thruster, X weapon, D/G/W tools, H doors, M joints).
+    - ✅ `land` (first version): picks the gear group, finds a spot where the ship's footprint fits (flat, level for the gear, hazard-free + 2 m, 60% backed), transit height over the route, slow final descent, stall stop, lock. One clean landing (both plates locked) via the script that became it.
+    - Known gaps: overhangs. Scan rays start "above" the surface; if that start point is inside hull (a gap between hull layers), the ray skips that block and reports the shelf below as open, so `land` can pick a spot under a ceiling (it did). Next: upward rays from each hit to find ceilings, reject spots with anything overhead lower than ship height + margin, and leave under-ceiling start positions sideways before rising. Also: auto-orient the ship to a chosen face first (today it must already face the surface), and recompute the footprint after turning.
+    - Later: hazard checks for weapons' and thrusters' *directions* (a thruster blasting across a spot, not just under it), landing on planets (voxel surfaces).
+
 ### M8: Fair play
 
 The rule: everything the assistant can do is useful in plain sandbox mode, and fair mode limits it to what an in-game AI could know and reach.
