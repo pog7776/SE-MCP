@@ -1262,12 +1262,13 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         return radio.equipment_text({**r, "equipment": mine}).split("\n", 1)[-1]
 
     @tool
-    async def laser_link(laser: str, target: str, permanent: bool | None = None, turn_ship: bool = False,
-                         grid: str | None = None) -> str:
+    async def laser_link(laser: str, target: str, target_laser: str | None = None, permanent: bool | None = None,
+                         turn_ship: bool = False, grid: str | None = None) -> str:
         """Point a laser antenna at another laser antenna and connect. target: a GPS name, "x, y, z", a radio
         signal or ship name (uses its laser antenna if it has one), or "idle" to drop the link. Both ends must
         aim at each other and have line of sight; permanent keeps the link after a reconnect. If the ship's own
-        hull blocks the view, turn_ship=True first rotates the ship (gyros) so the laser's base faces the target."""
+        hull blocks the view, turn_ship=True first rotates the ship (gyros) so the laser's base faces the target.
+        target_laser picks one laser antenna by name when the target ship has several."""
         ship = await resolve.grid(bridge, grid)
         b = await resolve.block(bridge, laser, grid)
         if target.strip().lower() == "idle":
@@ -1278,8 +1279,14 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         # One of our own ships or stations with a laser antenna: aim both ends at each other.
         try:
             other = await resolve.grid(bridge, target)
-            far = next((e for e in (await bridge.call("radio.antennas", {"gridId": other["id"]}))["equipment"]
-                        if e["kind"] == "laser" and e["id"] != b["id"] and e["working"]), None)
+            lasers = [e for e in (await bridge.call("radio.antennas", {"gridId": other["id"]}))["equipment"]
+                      if e["kind"] == "laser" and e["id"] != b["id"] and e["working"]]
+            if target_laser:
+                wanted = target_laser.strip().lower()
+                lasers = [e for e in lasers if e["name"].lower() == wanted] or [e for e in lasers if wanted in e["name"].lower()]
+                if not lasers:
+                    return f"No working laser antenna named '{target_laser}' on {other.get('name') or target}."
+            far = lasers[0] if lasers else None
         except (ResolveError, BridgeError):
             pass
         if far:
