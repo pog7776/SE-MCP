@@ -180,8 +180,9 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                                clear: bool = False, grid: str | None = None) -> str:
         """Put something in one toolbar slot (page 1-9, slot 1-9) of a block's toolbar (block) or the player's
         (block empty or "me"). Either target_block or target_group plus an action id (e.g. "OnOff", "OnOff_On",
-        "Trigger", "Run", "ShootOnce"; a wrong id lists the valid ones), or item: a block to build or a definition
-        id like "CubeBlock/LargeBlockArmorBlock" (player toolbar). clear=True empties the slot."""
+        "Trigger", "Run", "ShootOnce"; a wrong id lists the valid ones), or item: a tool, weapon or block by its
+        in-game name ("Elite Grinder", "Welder", "Ore Detector") or a definition id like
+        "CubeBlock/LargeBlockArmorBlock" (player toolbar). clear=True empties the slot."""
         params: dict[str, Any] = {**await _toolbar_owner(block, grid), "page": page, "slot": slot}
         if clear:
             params["clear"] = True
@@ -189,9 +190,15 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             if "/" in item:
                 params["definitionId"] = item
             else:
+                # Exact in-game names (tools, weapons, blocks) first; otherwise the closest block.
+                params["itemName"] = item
+                try:
+                    return toolbar_mod.change_text(await bridge.call("toolbar.set", params))
+                except BridgeError:
+                    del params["itemName"]
                 found = (await bridge.call("blockdefs.find", {"query": item, "limit": 5}))["blocks"]
                 if not found:
-                    return f"No block called '{item}'."
+                    return f"Nothing called '{item}': give the in-game name of a tool, weapon or block, or a definition id."
                 large = [f for f in found if f["size"] == "large"]
                 params["definitionId"] = (large or found)[0]["id"]
         elif target_block or target_group:

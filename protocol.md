@@ -242,8 +242,8 @@ Game internals (ModAPI can read groups but not edit them, and can't see toolbars
 
 | Method | Params | Returns |
 |---|---|---|
-| `toolbar.get` | `blockId?` (any block with a toolbar: cockpits, seats, remote controls, button panels, timers, sensors, event controllers...); none = the player's own | `owner` (`player` or the block name), `type` (`Ship`/`Character`/`ButtonPanel`/...), `pages`, `currentPage`, `slots[]` (non-empty only): `index`, `page`, `slot` (1-9), `text`, `kind` (`block`/`group`/`weapon`/`cubeblock`/...), `target`, `blockId`, `action`, `actionName` |
-| `toolbar.set` | `blockId?`; `page`+`slot` or `index`; then `clear`, or `definitionId` (`Type/Subtype`, e.g. a block to build), or `action` + `targetBlockId` or `group` + `gridId` | `owner`, `before`, `after` (slots as in `toolbar.get`). `invalid_params` lists the valid action ids; block/group actions are refused on Character toolbars |
+| `toolbar.get` | `blockId?` (any block with a toolbar: cockpits, seats, remote controls, button panels, timers, sensors, event controllers...); none = the player's own (`MyToolbarComponent.CharacterToolbar`, the one the HUD shows) | `owner` (`player` or the block name), `type` (`Ship`/`Character`/`ButtonPanel`/...), `pages`, `currentPage`, `slots[]` (non-empty only): `index`, `page`, `slot` (1-9), `text`, `kind` (`block`/`group`/`weapon`/`cubeblock`/...), `target`, `blockId`, `action`, `actionName` |
+| `toolbar.set` | `blockId?`; `page`+`slot` or `index`; then `clear`, or `itemName` (in-game name of a tool, weapon or block) or `definitionId` (`Type/Subtype`), or `action` + `targetBlockId` or `group` + `gridId` | `owner`, `before`, `after` (slots as in `toolbar.get`). `invalid_params` lists the valid action ids; block/group actions are refused on Character toolbars |
 | `group.set` | `gridId`, `name`, `blockIds[]`, `mode?` (`replace`/`add`/`remove`/`delete`), `newName?` | `name`, `created`, `deleted`, `before` (count), `blocks[]`. `MyCubeGrid.ModifyGroup`, like the terminal; an emptied group is deleted |
 
 ## Host-only methods

@@ -40,7 +40,9 @@ namespace SEMcp.Host
                 var player = MySession.Static.LocalHumanPlayer
                     ?? throw new RpcException(ErrorKind.NotFound, "No local player");
                 owner = "player";
-                return MySession.Static.Toolbars.TryGetPlayerToolbar(player.Id)
+                // The one the HUD shows; the session's per-player copy is what gets saved and isn't redrawn.
+                return MyToolbarComponent.CharacterToolbar
+                    ?? MySession.Static.Toolbars.TryGetPlayerToolbar(player.Id)
                     ?? throw new RpcException(ErrorKind.NotFound, "The player has no toolbar");
             }
             var block = access.Block(p.Id("blockId"));
@@ -128,6 +130,19 @@ namespace SEMcp.Host
                 toolbar.SetItemAtIndex(index, null);
                 dispatcher.Context.Log($"toolbar.set '{owner}' slot {index}: cleared");
                 return new { owner, before = beforeInfo, after = (object)null };
+            }
+
+            // A tool, weapon or block by its in-game name: hand tools and weapons first, then blocks (large grid first).
+            if (p.String("itemName") is string itemName)
+            {
+                var all = Sandbox.Definitions.MyDefinitionManager.Static.GetAllDefinitions()
+                    .Where(d => d.Public && string.Equals(d.DisplayNameText, itemName.Trim(), StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                var pick = all.OfType<Sandbox.Definitions.MyWeaponItemDefinition>().Cast<MyDefinitionBase>().FirstOrDefault()
+                    ?? all.OfType<Sandbox.Definitions.MyCubeBlockDefinition>().OrderBy(d => d.CubeSize == MyCubeSize.Large ? 0 : 1).Cast<MyDefinitionBase>().FirstOrDefault()
+                    ?? all.FirstOrDefault()
+                    ?? throw new RpcException(ErrorKind.NotFound, $"Nothing called '{itemName}' (use the in-game name, e.g. 'Elite Grinder')");
+                p["definitionId"] = pick.Id.ToString().Replace("MyObjectBuilder_", "");
             }
 
             // A block to build or a tool/weapon (the player's toolbar), by definition id "TypeId/SubtypeId".
