@@ -21,6 +21,7 @@ namespace SEMcp.Host
         private GameThreadQueue queue;
         private Dispatcher dispatcher;
         private TcpServer server;
+        private CameraCapture capture;
 
         public void Start(ILoaderContext context)
         {
@@ -43,6 +44,7 @@ namespace SEMcp.Host
             });
 
             HostMethods.Register(dispatcher);
+            StartCapture();
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);
             server.Start();
@@ -56,6 +58,9 @@ namespace SEMcp.Host
         public void Stop()
         {
             server?.Stop();
+            capture?.Dispose();
+            capture = null;
+            AppDomain.CurrentDomain.AssemblyResolve -= ResolveLoaded;
             queue?.Close();
             Log("Host stopped");
         }
@@ -69,10 +74,40 @@ namespace SEMcp.Host
                     // Respond first; the reload closes this connection on the next frame.
                     Task.Delay(200).ContinueWith(_ => loader.RequestReload());
                     return Task.FromResult<JsonNode>(new JsonObject { ["reloading"] = true });
+                case "camera.capture":
+                    return CaptureMethod.Run(parameters, dispatcher, queue, capture, config.AllowScreenshots);
             }
 
             return queue.Run(() => Rpc.ToNode(dispatcher.Dispatch(method, parameters)));
         }
+
+        // Harmony (0Harmony) is loaded by Pulsar, not from the game folder, so point our references at that copy.
+        private static System.Reflection.Assembly ResolveLoaded(object sender, ResolveEventArgs args)
+        {
+            string name = new System.Reflection.AssemblyName(args.Name).Name;
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                if (assembly.GetName().Name == name)
+                    return assembly;
+            return null;
+        }
+
+        // Separate method so the Harmony reference only resolves after ResolveLoaded is registered.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartCapture()
+        {
+            AppDomain.CurrentDomain.AssemblyResolve += ResolveLoaded;
+            try
+            {
+                capture = CreateCapture();
+            }
+            catch (Exception e)
+            {
+                Log($"Offscreen camera capture unavailable: {e}");
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private CameraCapture CreateCapture() => new CameraCapture(Log);
 
         private void Log(string message) => loader.Log(message);
     }

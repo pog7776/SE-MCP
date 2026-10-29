@@ -150,13 +150,35 @@ The `rc.*` methods take `blockId` (a Remote Control) and return its state:
 | `gps.add` | `name`, `coords`, `description?`, `showOnHud?`=true | the new entry |
 | `gps.remove` | `hash` or `name` | `removed` |
 
+## Sensing methods (M6)
+
+| Method | Params | Returns |
+|---|---|---|
+| `camera.list` | `gridId` | `cameras[]`: `id`, `name`, `gridName`, `working`, `active` (the player is looking through it), `raycastEnabled`, `scanRange` (m charged), `position`, `forward`, `up`, `distance` |
+| `camera.raycast` | `blockId`; `distance?`=2000 with `pitch?`/`yaw?` (deg, within the cone), or `target` `[x,y,z]` | `camera`, `enabledRaycast` (true if this call turned raycasting on, which starts the charge), `scanned`, `distance`, `hit` (null for nothing, else `id`, `name`, `type`, `relation`, `position`, `hitPosition`, `distance`, `size`, `speed`, `velocity`), `scanRangeLeft`, `msUntilScan`, `coneLimitDeg`, `maxDistance`. Write method (it changes `EnableRaycast` and uses charge) |
+| `sensors.get` | `gridId` or `blockId` | `sensors[]`: `id`, `name`, `working`, `active`, `extents` (left, right, top, bottom, front, back in m), `maxRange`, `detects[]`, `relations[]`, `detected[]` (as `hit` above) |
+
 ## Host-only methods
 
-These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host/HostMethods.cs` rather than Core.
+These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.
+
+`camera.capture` renders the world offscreen from some viewpoint and returns an image. The player's own view isn't changed.
+
+How it works (`CameraCapture.cs`):
+- A Harmony prefix on `MyRender11.DrawScene` points the render camera at the requested view.
+- It renders into a borrowed render target and encodes the result with the game's `MyTextureData.ToData`.
+- Then it restores the player's camera before the normal frame draws.
+- The patch is removed when the host stops, including on hot reload.
+
+The approach comes from the CameraLCD plugin.
+
+Params: `blockId` (a camera block, at its zoom), or `position` + `forward` (+ `up?`, `fovDegrees?`=70) for a free viewpoint within `maxRangeMeters`, or neither for the player's view without HUD. Optional: `width?`=1280 and `height?` (16:9 by default, max 1920 each), `fovDegrees?`, `format?` (`jpeg` or `png`).
+
+Returns `source`, `format`, `width`, `height`, `fovDegrees`, `position` and `image` (base64; the buffer may have trailing zero padding). It times out after 8 s if no frame renders, for example while the game is minimized. `allowScreenshots: false` turns it off (`feature_disabled`).
 
 | Method | Params | Returns |
 |---|---|---|
 | `sun.info` | `gridId?` | `sunDirection` (unit vector toward the sun, `[x,y,z]`). With `gridId`, `panels[]` for every solar panel in the construct: `id`, `name`, `normal` (world), `twoSided`, `exposure` (0–1, the game's own formula: `dot(normal, sunDirection)`), `maxOutputMW` (definition), `currentMaxMW` (what it can make now, including shadowing) |
-| `grid.motion` | `gridId` | `isStatic`, `gravityG` (natural gravity), `forward`/`up`/`right` (world unit vectors), `angularVelocity` (rad/s), `linearVelocity` (m/s), `gyros[]`: `id`, `name`, `forward`/`up`/`right`, `overriding`, `working` |
+| `grid.motion` | `gridId` | `center` and `radius` (bounding box of the construct), `cockpit` (`name`, `forward`, `up` of the main, occupied or first flight seat, else null), `isStatic`, `gravityG` (natural gravity), `forward`/`up`/`right` (world unit vectors), `angularVelocity` (rad/s), `linearVelocity` (m/s), `gyros[]`: `id`, `name`, `forward`/`up`/`right`, `overriding`, `working` |
 
 Gyro override properties (`Override`, `Pitch`, `Yaw`, `Roll` in RPM) are set with `block.set_property`. Their sign conventions relative to the gyro's axes aren't obvious, so the Python `steering` module measures them with a short test spin before turning.

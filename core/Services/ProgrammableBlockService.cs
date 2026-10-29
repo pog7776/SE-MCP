@@ -63,7 +63,7 @@ namespace SEMcp.Core.Services
         {
             dispatcher.RequireWritable();
             if (!dispatcher.Context.AllowPbCodePush)
-                throw new RpcException(ErrorKind.ReadOnly, "Pushing PB code is turned off (allowPbCodePush in config.json)");
+                throw new RpcException(ErrorKind.FeatureDisabled, "Pushing PB code is turned off (allowPbCodePush in config.json)");
         }
 
         // Replacing ProgramData recompiles, like pressing OK in the editor.

@@ -16,6 +16,7 @@ namespace SEMcp.Core
         public const string ScriptsDisabled = "scripts_disabled";
         public const string UnknownMethod = "unknown_method";
         public const string GameError = "game_error";
+        public const string Timeout = "timeout";
     }
 
     public class RpcException : Exception

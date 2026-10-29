@@ -72,8 +72,21 @@ namespace SEMcp.Host
             MatrixD m = grid.WorldMatrix;
             var physics = grid.Physics;
             Vector3 gravity = MyAPIGateway.Physics.CalculateNaturalGravityAt(grid.WorldAABB.Center, out _);
+            var construct = Access.Construct(grid);
+            var box = BoundingBoxD.CreateInvalid();
+            foreach (var g in construct)
+                box.Include(g.WorldAABB);
+            // The ship's "front" as the pilot sees it: the grid's own axes often differ from the cockpit's.
+            var cockpit = construct.SelectMany(g => g.GetFatBlocks<IMyCockpit>())
+                .Where(c => c.CanControlShip && !(c is IMyCryoChamber))
+                .OrderByDescending(c => c.IsMainCockpit)
+                .ThenByDescending(c => c.IsUnderControl)
+                .FirstOrDefault();
             return new
             {
+                center = Vec(box.Center),
+                radius = Math.Round(box.HalfExtents.Length(), 1),
+                cockpit = cockpit == null ? null : new { name = cockpit.CustomName, forward = Vec(cockpit.WorldMatrix.Forward), up = Vec(cockpit.WorldMatrix.Up) },
                 isStatic = grid.IsStatic,
                 gravityG = Math.Round(gravity.Length() / 9.81, 3),
                 forward = Vec(m.Forward),

@@ -117,7 +117,7 @@ namespace SEMcp.Core.Services
         {
             dispatcher.RequireWritable();
             if (!dispatcher.Context.AllowAutopilot)
-                throw new RpcException(ErrorKind.ReadOnly, "Autopilot is turned off (allowAutopilot in config.json)");
+                throw new RpcException(ErrorKind.FeatureDisabled, "Autopilot is turned off (allowAutopilot in config.json)");
         }
 
         // Replaces the RC's waypoints and engages autopilot, like setting it up in the terminal.

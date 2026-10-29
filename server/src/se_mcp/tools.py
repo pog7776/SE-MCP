@@ -12,6 +12,7 @@ from . import autopilot
 from . import format as fmt
 from . import pb
 from . import resolve
+from . import vision
 from .bridge import Bridge, BridgeError
 from .resolve import ResolveError
 
@@ -44,7 +45,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
     server = MCPServer("space-engineers", instructions=INSTRUCTIONS)
 
     def tool(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-        return server.tool()(_friendly_errors(fn))
+        # Text and images only; no structured output schema (it chokes on mixed text + image lists).
+        return server.tool(structured_output=False)(_friendly_errors(fn))
 
     @tool
     async def se_status() -> str:
@@ -397,9 +399,12 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         target = await resolve.grid(bridge, grid)
         return await align(bridge, target["id"], max_rpm=max_rpm, force=force)
 
-    @server.tool()
-    async def screenshot(max_width: int = 1280) -> Image | str:
-        """See what the player sees: a screenshot of the Space Engineers window (works while it's covered)."""
+    @server.tool(structured_output=False)
+    async def screenshot(max_width: int = 1280, hide_hud: bool = False) -> Image | str | list:
+        """See what the player sees. Default: a capture of the game window (HUD, menus and all; works while
+        it's covered). hide_hud=True renders the player's view in-engine instead: just the world."""
+        if hide_hud:
+            return await _render({"width": max_width}, "your view")
         from .screenshot import ScreenshotError, screenshot_jpeg
 
         try:
@@ -407,5 +412,70 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         except ScreenshotError as e:
             return f"Screenshot failed: {e}"
         return Image(data=data, format="jpeg")
+
+    # --- Vision and sensing. ---
+
+    async def _render(params: dict[str, Any], what: str) -> list | str:
+        try:
+            data, reply, path = await vision.capture(bridge, params, what)
+        except BridgeError as e:
+            return f"Couldn't render {what}: {e}"
+        caption = f"{what}: {reply['width']}x{reply['height']}, FOV {reply['fovDegrees']} deg. Saved to {path}"
+        return [caption, Image(data=data, format="jpeg")]
+
+    @tool
+    async def list_cameras(grid: str | None = None) -> str:
+        """Camera blocks on a ship, with where they point and their raycast charge."""
+        target = await resolve.grid(bridge, grid)
+        cams = (await bridge.call("camera.list", {"gridId": target["id"]}))["cameras"]
+        if not cams:
+            return f"No cameras on {target.get('name') or 'this ship'}."
+        return "\n".join(
+            f"- {c['name']} ({c['id']}): {'working' if c['working'] else 'NOT WORKING'}"
+            + (", player is looking through it" if c["active"] else "")
+            + (f", raycast charge {c['scanRange']:.0f} m" if c["raycastEnabled"] else "")
+            for c in cams)
+
+    @tool
+    async def camera_view(camera: str, grid: str | None = None, width: int = 1280, fov_degrees: float | None = None) -> list | str:
+        """Look through a camera block: renders its view offscreen (the player's view isn't touched) and
+        returns the image. fov_degrees overrides the camera's zoom."""
+        target = await resolve.block(bridge, camera, grid)
+        params: dict[str, Any] = {"blockId": target["id"], "width": width}
+        if fov_degrees:
+            params["fovDegrees"] = fov_degrees
+        return await _render(params, target.get("name") or "a camera")
+
+    @tool
+    async def ship_photo(grid: str | None = None, side: str = "front-left", distance_m: float | None = None,
+                         width: int = 1280) -> list | str:
+        """A third-person picture of a whole ship from outside, like a drone shot.
+
+        side: front, back, left, right, top, bottom, front-left, front-right, rear-left, rear-right
+        (relative to the cockpit). distance_m defaults to fitting the whole ship in view."""
+        target = await resolve.grid(bridge, grid)
+        motion = await bridge.call("grid.motion", {"gridId": target["id"]})
+        try:
+            view = vision.ship_viewpoint(motion, side, distance_m)
+        except ValueError as e:
+            return str(e)
+        return await _render({**view, "width": width}, f"{target.get('name') or 'ship'} from the {side}")
+
+    @tool
+    async def camera_scan(camera: str, distance_m: float = 2000, pitch_deg: float = 0, yaw_deg: float = 0,
+                          grid: str | None = None) -> str:
+        """Raycast from a camera block, like a PB scanner: reports the first thing hit (ship, asteroid,
+        planet, character) with distance, size and speed. Uses the camera's charge, which builds up at
+        ~2 km/s while raycasting is enabled; this enables it on first use. pitch/yaw aim within the camera's cone."""
+        target = await resolve.block(bridge, camera, grid)
+        result = await bridge.call("camera.raycast", {"blockId": target["id"], "distance": distance_m,
+                                                       "pitch": pitch_deg, "yaw": yaw_deg})
+        return vision.scan_text(result)
+
+    @tool
+    async def sensors(grid: str | None = None) -> str:
+        """Sensor blocks on a ship: triggered or not, their field size, what they detect and what's in range now."""
+        target = await resolve.grid(bridge, grid)
+        return vision.sensors_text(await bridge.call("sensors.get", {"gridId": target["id"]}))
 
     return server

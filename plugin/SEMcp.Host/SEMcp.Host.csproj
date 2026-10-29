@@ -11,6 +11,15 @@
     <ProjectReference Include="..\SEMcp.Loader\SEMcp.Loader.csproj" Private="false" />
   </ItemGroup>
 
+  <!-- Offscreen camera rendering (host-only): renderer types, and Harmony as loaded by Pulsar. -->
+  <ItemGroup>
+    <Reference Include="VRage.Render" HintPath="$(SEBin)\VRage.Render.dll" Private="false" />
+    <Reference Include="SharpDX" HintPath="$(SEBin)\SharpDX.dll" Private="false" />
+    <Reference Include="SharpDX.DXGI" HintPath="$(SEBin)\SharpDX.DXGI.dll" Private="false" />
+    <!-- The Legacy build compiles for both targets (there's no .NET 10 SDK here); at runtime the name binds to Pulsar's loaded copy. -->
+    <Reference Include="0Harmony" HintPath="$(PulsarDir)\Libraries\Legacy\0Harmony.dll" Private="false" />
+  </ItemGroup>
+
   <!-- The loader watches this folder and hot-reloads Host + Core when they change. -->
   <Target Name="DeployHost" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(TargetFramework)' != ''">
     <ItemGroup>

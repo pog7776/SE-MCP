@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_TIMEOUT = 10.0
+# Replies can carry images (base64 JPEG/PNG), far over asyncio's 64 KB default line limit.
+MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
 
 def config_path() -> Path:
@@ -86,7 +88,7 @@ class Bridge:
 
             try:
                 self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, port), timeout=3
+                    asyncio.open_connection(self.host, port, limit=MAX_MESSAGE_BYTES), timeout=3
                 )
             except (OSError, asyncio.TimeoutError) as e:
                 raise BridgeError("not_running", f"{NOT_RUNNING} ({e.__class__.__name__} on port {port})") from None
