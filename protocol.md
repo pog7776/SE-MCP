@@ -234,6 +234,7 @@ Weapons are `IMyUserControllableGun` blocks (turrets and fixed guns) and custom 
 | `radio.set` | `blockId`; any of `enabled`, `radius`, `broadcasting`, `hudText`, `showShipName` (antennas and beacons) | the grid's `radio.antennas` |
 | `laser.connect` | `blockId`, `target?` (`[x,y,z]`), `permanent?` | `block`, `status`. `SetTargetCoords` + `Connect`, like the terminal; the other laser must aim back and have line of sight |
 | `los.check` | `from`, `to` (`[x,y,z]`), `skip?`=2.5 (meters ignored at each end), `layer?`=30 | `clear`, `distance`, `hit?` (`entity`, `entityId`, `block` (`name`, `type`), `position`, `fromStart`, `voxel` when it's rock). Physics raycast plus a voxel-shape test (host hook), since asteroids away from ships have no physics |
+| `ore.markers` (host) | `gridId?` (distances from that ship, and list its detectors), `limit?`=500 | `visible`, `controlling` (`name`, `grid` of the ship controller the player is in, or null), `detectors[]` (`id`, `name`, `working`, `range`, `broadcastUsingAntennas`), `markers[]` nearest first (`ore`, `material`, `position`, `distance`, `body`, `detectorId`), `total`. Reads `MyHud.OreMarkers`: only what ore detectors have reported to the player's HUD, never voxel data |
 | `laser.idle` | `blockId` | `block`, `status`. The `Idle` terminal action (drops the link) |
 
 ## Toolbar and group methods (host)

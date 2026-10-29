@@ -118,3 +118,7 @@ TOOLS.update({
     "set_toolbar_slot": Fairness("own", "construct", "the player's own toolbar is 'suit'"),
     "edit_group": Fairness("own", "construct"),
 })
+
+TOOLS.update({
+    "ore_scan": Fairness("sensed", None, "the HUD's ore markers from the ship's ore detectors; never the map's voxel data"),
+})

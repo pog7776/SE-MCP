@@ -35,6 +35,67 @@ namespace SEMcp.Host
             dispatcher.Register("environment.get", p => Environment(access, dispatcher, p));
             dispatcher.Register("environment.bodies", p => Bodies(access, dispatcher, p));
             dispatcher.Register("radio.signals", p => Signals(access, dispatcher, p));
+            dispatcher.Register("ore.markers", p => OreMarkers(access, dispatcher, p));
+        }
+
+        private static readonly MethodInfo ComputeWorldPosition = typeof(Sandbox.Game.Entities.Cube.MyEntityOreDeposit.Data)
+            .GetMethod("ComputeWorldPosition", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // The ore markers on the player's HUD: what ore detectors have found. The game only fills these while the
+        // player controls a ship with a working detector (or one relayed by antenna), so this is the fair view:
+        // no reading the map's voxel data directly. Plus the ship's detectors (gridId), to explain an empty list.
+        private static object OreMarkers(Access access, Dispatcher dispatcher, JsonObject p)
+        {
+            dispatcher.RequireSession();
+            Vector3D origin = p["gridId"] != null ? access.Grid(p.Id("gridId")).WorldAABB.Center : access.Origin;
+            var markers = new List<KeyValuePair<double, object>>();
+            foreach (var deposit in Sandbox.Game.Gui.MyHud.OreMarkers)
+            {
+                if (deposit?.VoxelMap == null || deposit.Materials == null)
+                    continue;
+                string body = deposit.VoxelMap is MyPlanet planet ? PlanetName(planet) : deposit.VoxelMap.StorageName ?? "asteroid";
+                foreach (var data in deposit.Materials)
+                {
+                    if (data.Material == null || string.IsNullOrEmpty(data.Material.MinedOre))
+                        continue;
+                    var args = new object[] { deposit.VoxelMap, Vector3D.Zero };
+                    ComputeWorldPosition.Invoke(data, args);  // internal: local voxel coords -> world
+                    var at = (Vector3D)args[1];
+                    double distance = Vector3D.Distance(origin, at);
+                    markers.Add(new KeyValuePair<double, object>(distance, new
+                    {
+                        ore = data.Material.MinedOre,
+                        material = data.Material.Id.SubtypeName,
+                        position = Vec(at),
+                        distance = Math.Round(distance, 0),
+                        body,
+                        detectorId = deposit.DetectorId.ToString(),
+                    }));
+                }
+            }
+
+            object detectors = null;
+            if (p["gridId"] != null)
+                detectors = Access.Construct(access.Grid(p.Id("gridId")))
+                    .SelectMany(g => g.GetFatBlocks<IMyOreDetector>()).Where(access.CanUse)
+                    .Select(d => new
+                    {
+                        id = d.EntityId.ToString(),
+                        name = d.CustomName,
+                        working = d.IsWorking,
+                        range = Math.Round(d.Range, 0),
+                        broadcastUsingAntennas = d.BroadcastUsingAntennas,
+                    }).ToList();
+
+            var controlled = MySession.Static.ControlledEntity as MyShipController;
+            return new
+            {
+                visible = Sandbox.Game.Gui.MyHud.OreMarkers.Visible,
+                controlling = controlled == null ? null : new { name = controlled.DisplayNameText, grid = controlled.CubeGrid.DisplayName },
+                detectors,
+                markers = markers.OrderBy(m => m.Key).Take((int)p.Number("limit", 500)).Select(m => m.Value).ToList(),
+                total = markers.Count,
+            };
         }
 
         // What the radio network carries to a listener: the antenna, beacon and laser antenna signals the HUD shows,

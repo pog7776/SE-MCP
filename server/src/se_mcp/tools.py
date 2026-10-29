@@ -16,6 +16,7 @@ from . import combat
 from . import forecast as forecast_mod
 from . import format as fmt
 from . import items as items_mod
+from . import ore as ore_mod
 from . import organizer
 from . import production as production_mod
 from . import radio
@@ -1294,6 +1295,28 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         _, w = await _weapons(grid)
         sensed = await bridge.call("sensors.get", {"gridId": target["id"]})
         return combat.contacts_text(target.get("name") or "Ship", heard, w, sensed, include_friendly)
+
+    # --- Ore detection. ---
+
+    @tool
+    async def ore_scan(grid: str | None = None, ore: str | None = None, mark_gps: bool = False) -> str:
+        """What the ship's ore detectors have found: the ore markers on the HUD, per ore with the nearest one,
+        and the detectors' range. ore filters (e.g. "iron", "ice") and lists the nearest markers. mark_gps adds a
+        GPS at the nearest marker of each ore shown. Only reads what detectors see (no map scanning), so it needs a
+        working detector and someone in control or 'broadcast using antennas' on."""
+        target = await resolve.grid(bridge, grid)
+        r = await bridge.call("ore.markers", {"gridId": target["id"]})
+        text = ore_mod.scan_text(r, ore)
+        if mark_gps:
+            shown = [m for m in r["markers"] if not ore or ore.lower() in m["ore"].lower()]
+            added = []
+            for name, g in ore_mod.by_ore(shown).items():
+                await bridge.call("gps.add", {"name": f"Ore: {name}", "coords": g["nearest"]["position"],
+                                              "description": f"Nearest {name} seen by {target.get('name') or 'the ship'}"})
+                added.append(name)
+            if added:
+                text += "\nGPS added: " + ", ".join(f"Ore: {a}" for a in added)
+        return text
 
     # --- Radio: what the ship or suit hears, its own antennas and beacons, laser antenna links. ---
 
