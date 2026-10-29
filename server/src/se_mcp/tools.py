@@ -1404,7 +1404,16 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                                        max_accel=await _safe_accel(ship["id"]))
         docked = False
         try:
-            await pilot.start()
+            if any(g["locked"] for g in mine["landingGear"]):
+                # Parked on its gear: let go and lift straight off (along their connector's axis) before heading
+                # for the approach point, so it doesn't drag across whatever it's sitting on.
+                await bridge.call("dock.gear", {"gridId": ship["id"], "action": "unlock"})
+                await pilot.start()
+                pilot.target = {**t, "position": c["position"]}
+                await pilot.hold(6, tolerance=0.5, timeout_s=60)
+                pilot.target = t
+            else:
+                await pilot.start()
             await pilot.hold(approach_m, tolerance=0.5, timeout_s=300)
             await pilot.hold(1.8, tolerance=0.1, timeout_s=180, until=lambda x: x["status"] == "Connectable")
             r = await bridge.call("dock.connector", {"blockId": c["id"], "action": "connect"})
@@ -1491,8 +1500,9 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             nb = await resolve.block(bridge, near, on)
             origin = (await bridge.call("block.position", {"blockId": nb["id"]}))["position"]
         else:
-            down = await bridge.call("los.check", {"from": ref["position"], "to": docking.add(ref["position"], face, 60),
-                                                   "skip": 0.3, "ignoreId": ship["id"]})
+            # From 1 m behind the gear (our own ship is ignored), so a surface it already rests on still counts.
+            down = await bridge.call("los.check", {"from": docking.add(ref["position"], face, -1), "to": docking.add(ref["position"], face, 60),
+                                                   "skip": 0.0, "ignoreId": ship["id"]})
             if not down.get("hit") or down["hit"].get("entityId") not in (target["id"], None):
                 return f"{target.get('name')} isn't below the ship's gear (within 60 m). Fly over it first, or give near=."
             origin = down["hit"]["position"]
