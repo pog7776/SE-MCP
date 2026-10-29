@@ -129,7 +129,10 @@ def inventory(inv: dict[str, Any], title: str, item_filter: str | None = None) -
     if item_filter:
         f = item_filter.lower()
         totals = [t for t in totals if f in t["subtype"].lower() or f in t["type"].lower()]
-    lines = [f"{title}: {inv['fill']}% full ({_num(inv['volumeL'], ' L')}/{_num(inv['maxVolumeL'], ' L')})"]
+    if inv["maxVolumeL"] > 1e9:  # creative mode: unlimited inventory
+        lines = [f"{title}: {_num(inv['volumeL'], ' L')} (unlimited capacity)"]
+    else:
+        lines = [f"{title}: {inv['fill']}% full ({_num(inv['volumeL'], ' L')}/{_num(inv['maxVolumeL'], ' L')})"]
     if not totals:
         lines.append(f"No items matching '{item_filter}'." if item_filter else "Empty.")
     else:

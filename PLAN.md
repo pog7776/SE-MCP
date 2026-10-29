@@ -218,9 +218,11 @@ Client config (README):
 3. ✅ **Control**: `block.action`, `block.set_property`, set name/custom data, group actions, `notify`, `readOnly`, access + range checks, `production.get`.
 4. ✅ **Programmable blocks**: `pb.get` / `pb.set_code` / `pb.recompile` / `pb.run`, the primer, code backups. Compiler messages come from the host, because the game discards them outside the editor. The loop test passed live: push, run, break, read the errors, fix.
 5. ✅ **Autopilot + GPS**: `rc.get` / `rc.fly_to` / `rc.stop`, plus GPS list/add/remove. Flies nose-first automatically: the RC face matching the cockpit is picked, and cryo pods and passenger seats are ignored. Live test passed: 150 m at 15 m/s, stopped about 1 m from the target. Not covered yet: the newer AI blocks (AI Flight (Move), AI Basic (Task), Offensive/Defensive, Recorder). Their ModAPI can't add waypoints, so they're left to the generic block tools for now.
-6. ✅ **Vision + sensing**: `camera.capture` (host, offscreen render via a Harmony prefix on `MyRender11.DrawScene`; CameraLCD approach), `camera.list` / `camera.raycast` / `sensors.get`. Tools: `list_cameras`, `camera_view`, `ship_photo` (drone shot from any side), `camera_scan`, `sensors`, `screenshot(hide_hud=True)`. Captures are saved to `%AppData%SpaceEngineersSEMcpptures`. Verified live: every camera on the Red Ship renders in about 50 ms. Sensors were verified live too (one triggered by the player, one idle). Not verified yet: Interim (.NET 10).
-7. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
-8. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game. See below.
+6. ✅ **Vision + sensing**: `camera.capture` (host, offscreen render via a Harmony prefix on `MyRender11.DrawScene`; CameraLCD approach), `camera.list` / `camera.raycast` / `sensors.get`. Tools: `list_cameras`, `camera_view`, `ship_photo` (drone shot from any side), `camera_scan`, `sensors`, `screenshot(hide_hud=True)`. Captures are saved to `%AppData%\SpaceEngineers\SEMcp\captures`. Verified live: every camera on the Red Ship renders in about 50 ms. Sensors were verified live too (one triggered by the player, one idle). Not verified yet: Interim (.NET 10).
+7. **More of the game**: inventories, production, build planning, screens, highlights, suit, environment, forecasts, ore detectors, combat, saves, docking. See below.
+8. **Fair play**: a switchable mode that limits what the assistant knows and can reach to what the ship could plausibly sense and talk to. See below.
+9. **Polish**: README, protocol.md, fake-bridge tests, error messages, a `selftest` tool. The end-to-end MCP stdio run already passes for every read tool.
+10. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game, plus game events (damage, destroyed blocks, low resources, chat, new contacts). See below.
 
 ### M6: Vision + sensing
 
@@ -239,7 +241,44 @@ Goal: let the assistant look through any camera block on a usable grid, without 
 - **MCP tools:** `list_cameras(grid)`, `camera_view(camera, hide_hud=True)` returning an image, `camera_scan(camera, distance)`, `sensors(grid)`, and `screenshot(hide_hud=False)`.
 - **Multiplayer note:** rendering and screenshots are client-local and invisible to other players.
 
-### M8: Companion
+### M7: More of the game
+
+Everything here is tagged for fair play as it's built (see M8). The order is roughly what the player asked for most.
+
+1. **Inventories** (must-have):
+   - **Primitives** for working through it together: move items between inventories (a type and amount, or "all"), pull everything of a type out of a block, and look up where an item is.
+   - **Transfer rules:** moves go through conveyors like the terminal (`IMyInventory.CanTransferItemTo` / `TransferItemTo` with connection checks). Moves to or from the suit need the player seated on that construct or standing near the block.
+   - **Organizer** (bundled): a tag on the container name or CustomData (`[Ore]`, `[Ingots]`, `[Components]`, `[Ammo]`, `[Tools]`, `[Ice]`, ...) sends those items there. Untagged items follow defaults: ore and stone to refineries or ore cargo, ice to H2/O2 generators, uranium to reactors, ammo to the guns that use it, ingots to assemblers or cargo, the rest to cargo. It always shows a plan first and moves only on approval.
+2. **Production**: queue, clear and reorder assembler jobs; refinery state; recipe and blueprint lookup from the definitions.
+3. **Build planning**: projector progress (remaining and buildable blocks, missing components) and component costs from block definitions. "What do I need to finish this, and what am I short of?"
+4. **Screens**: write text, and later sprites, on LCDs and cockpit screens. Status boards, and eventually the AI's own face.
+5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
+6. **Suit**: helmet, jetpack, dampeners, lights.
+7. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
+8. **Forecasts**: battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
+9. **Ore detectors**: what the ship's ore detectors currently see (the HUD ore markers), as summaries or GPS points. No reading the map's voxel data directly, which would be cheating.
+10. **Combat**: what turrets are targeting and their ammo; select or change targets.
+11. **Safety net**: save the world before risky operations, such as long autopilot runs or docking.
+12. **Docking**:
+    - Read connector, merge block and landing gear status.
+    - Dock a ship myself: RC precision mode for the approach, then a final approach using gyro steering plus thruster overrides, connector lined up with connector, then Connect once the status is "Connectable".
+
+### M8: Fair play
+
+The rule: everything the assistant can do is useful in plain sandbox mode, and fair mode limits it to what an in-game AI could know and reach.
+
+- **Knowledge sources:** every tool declares where its information comes from.
+  - `own`: the construct's own blocks.
+  - `sensed`: sensors, cameras, turrets, ore detectors, antennas or radio broadcasts.
+  - `omniscient`: the world itself, such as grid listing or GPS.
+- **Links:** every action declares the link it needs, for example an antenna in range, or being on the same construct.
+- **Fair mode:** filters the tools to these rules.
+  - "Grids nearby" comes only from antenna broadcasts, cameras, sensors and turrets, with no magic 50 km scan.
+  - Remote control needs an antenna link.
+  - Optionally, the AI core lives in a specific block (see "In-world presence" under Later).
+- **Built in M7:** the tags only.
+
+### M10: Companion
 
 Goal: chat with the assistant from inside the game, privately, and have it speak up on its own when something needs attention.
 
