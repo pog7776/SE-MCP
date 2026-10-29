@@ -129,3 +129,7 @@ TOOLS.update({
     "undock": Fairness("own", "construct"),
     "dock": Fairness("own", "construct", "reads the target connector's position: fine for our own ships/stations; others need sensing"),
 })
+
+TOOLS.update({
+    "ship_hud": Fairness("own", None, "other ships: needs antenna link"),
+})

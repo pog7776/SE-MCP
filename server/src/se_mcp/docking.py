@@ -61,6 +61,10 @@ def thrust_split(force: Vec, thrusters: list[dict[str, Any]]) -> dict[str, float
     return out
 
 
+# Ships that were parked with their thrusters off when undock released them, so dock can park them the same way.
+PARKED_WITH_THRUSTERS_OFF: set[str] = set()
+
+
 class ConnectorPilot:
     """Moves a ship so its connector sits at a point on the target connector's axis, facing it."""
 
@@ -88,8 +92,9 @@ class ConnectorPilot:
         """Release every override and turn the dampeners back on; once docked, thrusters go back off if that's
         how the ship was parked."""
         params: dict[str, Any] = {"gridId": self.ship_id, "release": True, "dampeners": True}
-        if docked and not getattr(self, "thrusters_were_on", True):
+        if docked and (not getattr(self, "thrusters_were_on", True) or self.ship_id in PARKED_WITH_THRUSTERS_OFF):
             params["thrustersOn"] = False
+            PARKED_WITH_THRUSTERS_OFF.discard(self.ship_id)
         await self.bridge.call("flight.set", params)
 
     async def hold(self, distance: float, tolerance: float = 0.15, timeout_s: float = 90,

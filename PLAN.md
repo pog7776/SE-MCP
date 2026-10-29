@@ -284,6 +284,8 @@ Remaining items, reordered by value for effort, quick wins first and docking las
     - Dock a ship myself: gyro overrides hold our connector facing theirs; thruster overrides fly it along their axis (position -> velocity -> force loop over RPC); connect at "Connectable". The RC autopilot couldn't do it: it always turns its leading face toward the travel direction, so sideways corrections swing the ship.
     - Next: land on landing gear (gear face square to a surface), and the big Red Ship onto the base (same pilot, gentler limits).
 
+13. ✅ **Ship HUD** (`ship_hud`): one ship's systems at a glance for agents, ship-only (docked ships separate), subgrids with their rotor/hinge/piston joint and state, and warnings (thrusters off, dampeners off, recharge-only batteries, no fuel, overrides active...). Later: deeper subgrid tools (move a rotor/hinge/piston to an angle or extension, list blocks per subgrid).
+
 ### M8: Fair play
 
 The rule: everything the assistant can do is useful in plain sandbox mode, and fair mode limits it to what an in-game AI could know and reach.

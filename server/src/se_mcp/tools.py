@@ -16,6 +16,7 @@ from . import combat
 from . import docking
 from . import forecast as forecast_mod
 from . import format as fmt
+from . import hud as hud_mod
 from . import items as items_mod
 from . import ore as ore_mod
 from . import organizer
@@ -1297,6 +1298,21 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         sensed = await bridge.call("sensors.get", {"gridId": target["id"]})
         return combat.contacts_text(target.get("name") or "Ship", heard, w, sensed, include_friendly)
 
+    @tool
+    async def ship_hud(grid: str | None = None, docked_too: bool = False) -> str:
+        """Quick look at one ship or station, like a HUD: flight systems (thrusters/gyros on, dampeners, pilot,
+        autopilot), power, fuel, gas, cargo, weapons, radio, docking and damage, with warnings for anything that
+        would trip up flying (thrusters off, batteries on recharge, no fuel...). Only that ship, not ships docked to
+        it; docked_too adds a line for each of those."""
+        target = await resolve.grid(bridge, grid)
+        h = await bridge.call("ship.hud", {"gridId": target["id"]})
+        text = hud_mod.hud_text(h)
+        if docked_too:
+            for d in h["docked"]:
+                other = await bridge.call("ship.hud", {"gridId": d["shipId"]})
+                text += "\n\n" + hud_mod.hud_text(other)
+        return text
+
     # --- Docking: connectors, landing gear, and flying a connector onto another. ---
 
     @tool
@@ -1328,6 +1344,11 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         if not connected:
             return f"{status['gridName']} isn't docked" + (f" by '{connector}'" if connector else "") + "."
         lines = []
+        m = await bridge.call("grid.motion", {"gridId": target["id"], "thrusters": True})
+        if m["thrusters"] and not any(t["working"] for t in m["thrusters"]):
+            docking.PARKED_WITH_THRUSTERS_OFF.add(target["id"])
+            lines.append("Note: its thrusters are off (parked)" + ("; turning them on to back off." if back_off_m > 0 else
+                         ". Turn them on before flying it."))
         for c in connected:
             await bridge.call("dock.connector", {"blockId": c["id"], "action": "disconnect"})
             lines.append(f"Disconnected {c['name']} from {c['other']['name']} on {c['other']['gridName']}.")

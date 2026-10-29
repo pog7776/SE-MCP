@@ -33,6 +33,7 @@ namespace SEMcp.Core
             new RadioService(this, access).Register();
             new DockingService(this, access).Register();
             new FlightService(this, access).Register();
+            new HudService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)
