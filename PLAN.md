@@ -261,7 +261,10 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
      - `build_planner`: show, withdraw to the suit through the conveyor rules, or queue what's missing.
      - `projector_status`: progress, needs and shortfall, with optional queueing.
    - Verified live: block costs, the build planner (show, and withdraw of 195 components to the suit), and a projector on the Red Platform.
-4. **Screens**: write text, and later sprites, on LCDs and cockpit screens. Status boards, and eventually the AI's own face.
+4. ✅ **Screens**: write text, and later sprites, on LCDs and cockpit screens. Status boards, and eventually the AI's own face.
+   - Done: `screens.list` / `screen.write` / `screen.mode`, and the tools `list_screens`, `write_screen` (by screen name, with styling; reports a replaced script) and `set_screen_mode`.
+   - Verified live on the Control Seat's spare screen and photographed with `screenshot(hide_hud=True)`.
+   - Later: sprites (`DrawFrame`) for drawn status boards or a face.
 5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
 6. **Suit**: helmet, jetpack, dampeners, lights.
 7. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.

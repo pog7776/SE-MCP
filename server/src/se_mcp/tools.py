@@ -394,6 +394,85 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             lines.append("Queued:\n" + "\n".join(await _queue_components(target, missing, book)) if missing else "Nothing to queue: the ship has it all.")
         return "\n".join(lines)
 
+    # --- Screens: LCDs, cockpit and PB screens. ---
+
+    def _surface_line(s: dict[str, Any]) -> str:
+        if s["content"] == "SCRIPT":
+            what = f"script {s['script']}"
+        elif s["content"] == "TEXT_AND_IMAGE":
+            shown = []
+            if s["textLength"]:
+                shown.append(f"text ({s['textLength']} chars): {s['text']!r}")
+            if s["images"]:
+                shown.append("images " + ", ".join(s["images"]))
+            what = "; ".join(shown) or "text mode, empty"
+        else:
+            what = "off"
+        return f"  #{s['index']} {s['name']}: {what}"
+
+    async def _surface_index(block_id: str, surface: str | int | None) -> int:
+        if surface is None or isinstance(surface, int) or str(surface).isdigit():
+            return int(surface or 0)
+        listing = (await bridge.call("screens.list", {"blockId": block_id}))["blocks"][0]["surfaces"]
+        hits = [s for s in listing if str(surface).lower() in s["name"].lower()]
+        if not hits:
+            raise ResolveError(f"No screen '{surface}'. Screens: " + ", ".join(f"#{s['index']} {s['name']}" for s in listing))
+        return hits[0]["index"]
+
+    @tool
+    async def list_screens(grid: str | None = None, block: str | None = None) -> str:
+        """Screens on a ship (LCDs, cockpits, programmable blocks...): what each shows (text, images, a script
+        like the artificial horizon, or off). With block: that block's screens with their full text."""
+        if block:
+            target = await resolve.block(bridge, block, grid)
+            listing = await bridge.call("screens.list", {"blockId": target["id"]})
+        else:
+            target = await resolve.grid(bridge, grid)
+            listing = await bridge.call("screens.list", {"gridId": target["id"]})
+        if not listing["blocks"]:
+            return "No screens."
+        lines = []
+        for b in listing["blocks"]:
+            lines.append(f"- {b['name']}" + ("" if b["working"] else " (not working)"))
+            lines += [_surface_line(s) for s in b["surfaces"]]
+        return "\n".join(lines)
+
+    @tool
+    async def write_screen(block: str, text: str, surface: str | int | None = None, append: bool = False,
+                           font_size: float | None = None, color: str | None = None, background: str | None = None,
+                           align: str | None = None, grid: str | None = None) -> str:
+        """Show text on an LCD or one of a cockpit's screens (switches it to text mode, replacing a script there).
+
+        surface: screen number or name ("top left") for blocks with several; default the first. color and
+        background: "#RRGGBB". align: left, center, right. Tell the player if you replaced a script; restore it
+        with set_screen_mode."""
+        target = await resolve.block(bridge, block, grid)
+        params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface),
+                                  "text": text, "append": append}
+        for key, value in (("fontSize", font_size), ("fontColor", color), ("background", background), ("alignment", align)):
+            if value is not None:
+                params[key] = value
+        r = await bridge.call("screen.write", params)
+        before = r["before"]
+        note = ""
+        if before["content"] == "SCRIPT":
+            note = f" It was showing the script {before['script']} (restore with set_screen_mode)."
+        elif before["textLength"] and not append:
+            note = f" Replaced {before['textLength']} chars of text."
+        return f"Wrote to {r['block']} #{r['after']['index']} {r['after']['name']}.{note}"
+
+    @tool
+    async def set_screen_mode(block: str, mode: str, script: str | None = None, surface: str | int | None = None,
+                              grid: str | None = None) -> str:
+        """Switch a screen to "text", "script" (script: e.g. TSS_ArtificialHorizon, TSS_EnergyHydrogen,
+        TSS_Gravity, TSS_ClockAnalog, TSS_ClockDigital, TSS_FactionIcon, TSS_TargetingInfo, TSS_Weather), or "none" (off)."""
+        target = await resolve.block(bridge, block, grid)
+        params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface), "mode": mode}
+        if script:
+            params["script"] = script
+        r = await bridge.call("screen.mode", params)
+        return f"{r['block']} #{r['after']['index']} {r['after']['name']}: now {_surface_line(r['after']).split(': ', 1)[1]}."
+
     # --- Inventory management. Moves go through conveyors, like dragging items in the terminal. ---
 
     SUIT_WORDS = {"suit", "me", "my suit", "player", "character", "inventory", "my inventory"}

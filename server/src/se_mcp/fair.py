@@ -76,3 +76,9 @@ TOOLS.update({
     "build_planner": Fairness("player", "suit", "withdraw follows the inventory screen's conveyor rules"),
     "projector_status": Fairness("own", "construct"),
 })
+
+TOOLS.update({
+    "list_screens": Fairness("own", None),
+    "write_screen": Fairness("own", "construct"),
+    "set_screen_mode": Fairness("own", "construct"),
+})

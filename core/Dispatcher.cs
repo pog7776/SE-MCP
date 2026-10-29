@@ -28,6 +28,7 @@ namespace SEMcp.Core
             new AutopilotService(this, access).Register();
             new SensingService(this, access).Register();
             new BuildService(this, access).Register();
+            new ScreenService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)

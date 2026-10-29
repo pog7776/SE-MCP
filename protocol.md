@@ -194,6 +194,16 @@ The `rc.*` methods take `blockId` (a Remote Control) and return its state:
 | `blockdefs.find` | `query` (words that must all appear in the name or subtype id), `size?` (`large`/`small`), `limit?`=30 | `blocks[]`: `id` (e.g. `Gyro/LargeBlockGyro`), `name`, `size`, `pcu`, `count`, `components[]` (`type`, `subtype`, `count`). Exact name first, then names containing every word, then shorter names. Public blocks with components only |
 | `projector.get` | `blockId` | `name`, `projecting`, `working`. When projecting, also: `projectedGrid`, `totalBlocks`, `remainingBlocks`, `remainingArmorBlocks`, `buildableNow`, `remaining[]` (block types not placed yet, as `blockdefs.find` entries with `count`), `unfinishedBlocks` and `unfinishedComponents[]` (missing components of placed but unfinished or damaged blocks on the projector's ship) |
 
+## Screen methods (M7)
+
+These cover every text surface of a block: LCDs, cockpit screens, programmable blocks, button panels and so on.
+
+| Method | Params | Returns |
+|---|---|---|
+| `screens.list` | `gridId`, or `blockId` (full text) | `blocks[]`: `blockId`, `name`, `type`, `working`, `surfaces[]` (`index`, `name`, `content` (`NONE`/`TEXT_AND_IMAGE`/`SCRIPT`), `script`, `images[]`, `font`, `fontSize`, `fontColor`, `background`, `alignment`, `padding`, `size`, `textLength`, `text` (first 200 chars in grid listings)) |
+| `screen.write` | `blockId`, `surface?`=0, `text?`, `append?`, `fontSize?`, `font?`, `fontColor?`, `background?` (`#RRGGBB` or `{r,g,b}`), `alignment?` (left/center/right), `padding?`, `clearImages?`=true | `block`, `before` (the surface as it was, full text), `after`. Switches the surface to text mode. Uses `IMyTextSurface.WriteText`, like a PB script; the block syncs it |
+| `screen.mode` | `blockId`, `surface?`=0, `mode` (`text`/`script`/`none`), `script` (for `script`; must be one the surface offers) | `block`, `before`, `after` |
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.

@@ -217,7 +217,7 @@ namespace SEMcp.Core.Services
             value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : value.ToJsonString();
 
         // "#RRGGBB", "#RRGGBBAA" or {r, g, b, a?} with 0-255 channels.
-        private static Color ToColor(JsonNode value)
+        internal static Color ToColor(JsonNode value)
         {
             if (value is JsonObject o)
             {
