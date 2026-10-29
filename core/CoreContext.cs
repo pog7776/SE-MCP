@@ -19,6 +19,8 @@ namespace SEMcp.Core
         public bool AllowWeapons { get; set; }
         // A weapon's loaded magazine subtype, and switching it (game internals: MyGunBase). Null/false when unavailable.
         public Func<Sandbox.ModAPI.IMyTerminalBlock, string> CurrentMagazine { get; set; } = _ => null;
+        // Rounds left in the magazine the weapon has loaded (not counting magazines still in its inventory).
+        public Func<Sandbox.ModAPI.IMyTerminalBlock, int?> LoadedRounds { get; set; } = _ => null;
         public Func<Sandbox.ModAPI.IMyTerminalBlock, VRage.Game.MyDefinitionId, bool> SwitchMagazine { get; set; } = (_, __) => false;
         // Compiler messages of a programmable block. The game keeps them private (only its editor shows them), so the host supplies them.
         public Func<Sandbox.ModAPI.IMyProgrammableBlock, System.Collections.Generic.IList<string>> PbCompilerErrors { get; set; } = _ => null;

@@ -30,6 +30,7 @@ namespace SEMcp.Core
             new BuildService(this, access).Register();
             new ScreenService(this, access).Register();
             new WeaponService(this, access).Register();
+            new RadioService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)

@@ -122,6 +122,7 @@ namespace SEMcp.Core.Services
                     entry["shooting"] = gun.IsShooting;
                     entry["magazines"] = accepted.Select(m => m.Id.SubtypeName).ToList();
                     entry["loaded"] = dispatcher.Context.CurrentMagazine(b);
+                    entry["roundsLoaded"] = dispatcher.Context.LoadedRounds(b);
                     entry["magazinesInside"] = Dto.Inventories(b).SelectMany(Dto.ItemList)
                         .Where(i => i.Type.TypeId == "MyObjectBuilder_AmmoMagazine").Sum(i => (double)i.Amount);
                 }
@@ -141,6 +142,17 @@ namespace SEMcp.Core.Services
                     entry["targetingGroups"] = groups;
                     entry["azimuthDeg"] = Math.Round(MathHelper.ToDegrees(t.Azimuth), 1);
                     entry["elevationDeg"] = Math.Round(MathHelper.ToDegrees(t.Elevation), 1);
+                    // Where the barrel points now, in world space: azimuth/elevation are relative to the turret's base.
+                    Vector3D local;
+                    Vector3D.CreateFromAzimuthAndElevation(t.Azimuth, t.Elevation, out local);
+                    entry["aimDirection"] = Vec(Vector3D.TransformNormal(local, t.WorldMatrix), 3);
+                }
+                if (b is IMyUserControllableGun)
+                {
+                    entry["position"] = Vec(b.GetPosition(), 1);
+                    // The way the block is mounted (a turret's base up; a fixed gun fires along forward).
+                    entry["forward"] = Vec(b.WorldMatrix.Forward, 3);
+                    entry["up"] = Vec(b.WorldMatrix.Up, 3);
                 }
                 if (b is IMyTurretControlBlock tc)
                 {
@@ -176,7 +188,14 @@ namespace SEMcp.Core.Services
             {
                 if (b is IMyLargeTurretBase t)
                 {
-                    if (p.Bool("reset", false)) t.ResetTargetingToDefault();
+                    if (p.Bool("reset", false))
+                    {
+                        // Resetting also switches idle rotation on; keep the player's setting.
+                        bool idle = t.EnableIdleRotation;
+                        t.ResetTargetingToDefault();
+                        t.EnableIdleRotation = idle;
+                        t.SyncEnableIdleRotation();
+                    }
                     if (p["range"] != null) t.Range = (float)p.Number("range", t.Range);
                     if (p["idleRotation"] != null) { t.EnableIdleRotation = p.Bool("idleRotation", true); t.SyncEnableIdleRotation(); }
                     if (p.String("targetingGroup") is string group) t.SetTargetingGroup(group);

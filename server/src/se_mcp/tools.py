@@ -18,6 +18,7 @@ from . import format as fmt
 from . import items as items_mod
 from . import organizer
 from . import production as production_mod
+from . import radio
 from . import pb
 from . import resolve
 from . import vision
@@ -1021,6 +1022,14 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
     # --- Combat: turrets, guns, ammo, camera tracking, damage. ---
 
+    async def _point(text: str, grid_id: str) -> tuple[str, list[float]]:
+        """Coordinates, a GPS entry, or a radio signal the ship hears (by name)."""
+        try:
+            return await autopilot.resolve_target(bridge, text)
+        except ResolveError:
+            s = radio.find_signal(await bridge.call("radio.signals", {"gridId": grid_id}), text)
+            return radio.clean(s["name"]), s["position"]
+
     async def _weapons(grid: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
         target = await resolve.grid(bridge, grid)
         return target, await bridge.call("weapons.get", {"gridId": target["id"]})
@@ -1062,15 +1071,15 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
     @tool
     async def aim_turrets(turrets: str = "all", at: str | None = None, velocity: str | None = None,
                           azimuth_deg: float | None = None, elevation_deg: float | None = None, grid: str | None = None) -> str:
-        """Point turrets at something. at: a GPS name, a GPS string or "x, y, z"; add velocity "vx, vy, vz" (m/s)
+        """Point turrets at something. at: a radio signal name, a GPS name, a GPS string or "x, y, z"; add velocity "vx, vy, vz" (m/s)
         for a moving target so they lead it. Or aim by angle with azimuth_deg/elevation_deg. Doesn't fire.
         Turrets with AI on may switch back to their own targets; set_turrets(reset=True) hands control back."""
-        _, r = await _weapons(grid)
+        ship, r = await _weapons(grid)
         chosen = combat.pick(r["weapons"], turrets, ("turret", "turret controller"))
         params: dict[str, Any] = {"blockIds": [w["id"] for w in chosen]}
         what = ""
         if at:
-            name, point = await autopilot.resolve_target(bridge, at)
+            name, point = await _point(at, ship["id"])
             params["position"] = point
             what = f"at {name}"
             if velocity:
@@ -1130,7 +1139,7 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                            grid: str | None = None) -> str:
         """Follow a ship or object with the ship's cameras, like a lidar script: re-scans where the target
         should be every interval_s (from its last position and velocity), using whichever camera can see it.
-        Start from `camera` (scan straight ahead to acquire) or `at` (GPS or "x, y, z" of the target).
+        Start from `camera` (scan straight ahead to acquire) or `at` (a radio signal name, GPS, or "x, y, z").
         turrets: also keep these turrets aimed at the track (no firing). mark_gps leaves a GPS at its last fix."""
         target = await resolve.grid(bridge, grid)
         if camera:
@@ -1140,7 +1149,7 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             if not hit:
                 return "Couldn't acquire: " + vision.scan_text(first)
         elif at:
-            _, point = await autopilot.resolve_target(bridge, at)
+            _, point = await _point(at, target["id"])
             first = await bridge.call("camera.track", {"gridId": target["id"], "position": point})
             hit = first.get("hit")
             if not hit:
@@ -1206,5 +1215,102 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         each needs. Use highlight_blocks(damaged=True) to show the functional ones to the player."""
         target = await resolve.grid(bridge, grid)
         return combat.damage_text(await bridge.call("damage.get", {"gridId": target["id"]}))
+
+    @tool
+    async def contacts(grid: str | None = None, include_friendly: bool = True, measure_s: float = 1.0) -> str:
+        """Everything the ship knows is out there, from fair sources only: radio signals it hears (antennas,
+        beacons), what its turrets are targeting, and what its sensors detect. Merged per ship/object, nearest
+        first, with speeds measured over measure_s. Ships with antennas and beacons off only show up on
+        turrets and sensors; use track_target or camera_scan to find those."""
+        target = await resolve.grid(bridge, grid)
+        heard = await radio.signals(bridge, target["id"], measure_s)
+        _, w = await _weapons(grid)
+        sensed = await bridge.call("sensors.get", {"gridId": target["id"]})
+        return combat.contacts_text(target.get("name") or "Ship", heard, w, sensed, include_friendly)
+
+    # --- Radio: what the ship or suit hears, its own antennas and beacons, laser antenna links. ---
+
+    @tool
+    async def radio_signals(grid: str | None = None, from_suit: bool = False, measure_s: float = 0,
+                            include_own: bool = False) -> str:
+        """What the radio picks up: antenna, beacon and laser antenna signals (what the HUD shows), including
+        ones relayed through your own antennas. Listens from a ship (default: the current one) or from_suit.
+        measure_s > 0 samples twice to give each signal's speed."""
+        grid_id = None if from_suit else (await resolve.grid(bridge, grid))["id"]
+        return radio.signals_text(await radio.signals(bridge, grid_id, measure_s), include_own)
+
+    @tool
+    async def radio_equipment(grid: str | None = None) -> str:
+        """A ship's antennas, beacons and laser antennas: on/off, broadcast radius, HUD text, and laser links."""
+        target = await resolve.grid(bridge, grid)
+        return radio.equipment_text(await bridge.call("radio.antennas", {"gridId": target["id"]}))
+
+    @tool
+    async def set_radio(block: str, radius_m: float | None = None, broadcasting: bool | None = None,
+                        hud_text: str | None = None, show_ship_name: bool | None = None, enabled: bool | None = None,
+                        grid: str | None = None) -> str:
+        """Change an antenna or beacon: broadcast radius, broadcasting on/off (off = receive only, the ship goes
+        quiet on radio), HUD text, showing the ship name, or power. A bigger radius uses more power."""
+        b = await resolve.block(bridge, block, grid)
+        params: dict[str, Any] = {"blockId": b["id"]}
+        for key, value in (("radius", radius_m), ("broadcasting", broadcasting), ("hudText", hud_text),
+                           ("showShipName", show_ship_name), ("enabled", enabled)):
+            if value is not None:
+                params[key] = value
+        r = await bridge.call("radio.set", params)
+        mine = [e for e in r["equipment"] if e["id"] == b["id"]]
+        return radio.equipment_text({**r, "equipment": mine}).split("\n", 1)[-1]
+
+    @tool
+    async def laser_link(laser: str, target: str, permanent: bool | None = None, turn_ship: bool = False,
+                         grid: str | None = None) -> str:
+        """Point a laser antenna at another laser antenna and connect. target: a GPS name, "x, y, z", a radio
+        signal or ship name (uses its laser antenna if it has one), or "idle" to drop the link. Both ends must
+        aim at each other and have line of sight; permanent keeps the link after a reconnect. If the ship's own
+        hull blocks the view, turn_ship=True first rotates the ship (gyros) so the laser's base faces the target."""
+        ship = await resolve.grid(bridge, grid)
+        b = await resolve.block(bridge, laser, grid)
+        if target.strip().lower() == "idle":
+            r = await bridge.call("laser.idle", {"blockId": b["id"]})
+            return f"{r['block']}: {r['status']}."
+        here = next(e for e in (await bridge.call("radio.antennas", {"gridId": ship["id"]}))["equipment"] if e["id"] == b["id"])
+        far = None
+        # One of our own ships or stations with a laser antenna: aim both ends at each other.
+        try:
+            other = await resolve.grid(bridge, target)
+            far = next((e for e in (await bridge.call("radio.antennas", {"gridId": other["id"]}))["equipment"]
+                        if e["kind"] == "laser" and e["id"] != b["id"] and e["working"]), None)
+        except (ResolveError, BridgeError):
+            pass
+        if far:
+            name, point = f"{far['name']} on {far['gridName']}", far["position"]
+            back: dict[str, Any] = {"blockId": far["id"], "target": here["position"]}
+            if permanent is not None:
+                back["permanent"] = permanent
+            await bridge.call("laser.connect", back)
+        else:
+            name, point = await _point(target, ship["id"])
+        turned = ""
+        if turn_ship:
+            from .steering import turn_to
+
+            async def laser_facing() -> tuple[list[float], list[float]]:
+                eq = await bridge.call("radio.antennas", {"gridId": ship["id"]})
+                me = next(e for e in eq["equipment"] if e["id"] == b["id"])
+                return me["up"], [t - s for t, s in zip(point, me["position"])]
+
+            turned = await turn_to(bridge, ship["id"], laser_facing) + " "
+        params: dict[str, Any] = {"blockId": b["id"], "target": point}
+        if permanent is not None:
+            params["permanent"] = permanent
+        r = await bridge.call("laser.connect", params)
+        for _ in range(10):
+            await asyncio.sleep(1)
+            st = next(e for e in (await bridge.call("radio.antennas", {"gridId": ship["id"]}))["equipment"] if e["id"] == b["id"])
+            if st["status"] == "Connected":
+                break
+        eq = await bridge.call("radio.antennas", {"gridId": ship["id"]})
+        mine = [e for e in eq["equipment"] if e["id"] == b["id"]]
+        return f"{turned}Aimed {r['block']} at {name}. " + radio.equipment_text({**eq, "equipment": mine}).split("\n", 1)[-1]
 
     return server

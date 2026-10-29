@@ -34,6 +34,75 @@ namespace SEMcp.Host
             dispatcher.Register("highlight.clear", p => ClearHighlights(p));
             dispatcher.Register("environment.get", p => Environment(access, dispatcher, p));
             dispatcher.Register("environment.bodies", p => Bodies(access, dispatcher, p));
+            dispatcher.Register("radio.signals", p => Signals(access, dispatcher, p));
+        }
+
+        // What the radio network carries to a listener: the antenna, beacon and laser antenna signals the HUD shows,
+        // including ones relayed through the player's own antennas. Listener: a ship (gridId) or the player
+        // (their suit, or the ship they control).
+        private static object Signals(Access access, Dispatcher dispatcher, JsonObject p)
+        {
+            dispatcher.RequireSession();
+            long me = access.IdentityId;
+            MyEntity listener;
+            if (p["gridId"] != null)
+                listener = (MyEntity)access.Grid(p.Id("gridId"));
+            else
+                listener = MySession.Static.ControlledEntity?.Entity as MyEntity ?? MySession.Static.LocalCharacter;
+            if (listener == null)
+                throw new RpcException(ErrorKind.NotFound, "No listener: the player has no body");
+            if (listener is MyCubeBlock block)
+                listener = block.CubeGrid;
+
+            var system = MyAntennaSystem.Static;
+            var heard = new HashSet<MyDataBroadcaster>(system.GetAllRelayedBroadcasters(listener, me, false));
+            var receivers = new HashSet<MyDataReceiver>();
+            system.GetEntityReceivers(listener, ref receivers, me);
+            var direct = new HashSet<MyDataBroadcaster>(receivers.SelectMany(r => r.BroadcastersInRange));
+            var own = listener is MyCubeGrid g
+                ? new HashSet<long>(((IMyCubeGrid)g).GetGridGroup(GridLinkTypeEnum.Logical)?.GetGrids(new List<IMyCubeGrid>()).Select(x => x.EntityId) ?? new[] { g.EntityId })
+                : new HashSet<long> { listener.EntityId };
+            Vector3D origin = listener.PositionComp.WorldAABB.Center;
+
+            var signals = new List<KeyValuePair<double, object>>();
+            foreach (var b in heard)
+            {
+                if (b.Closed)
+                    continue;
+                var parent = system.GetBroadcasterParentEntity(b);
+                if (parent == null)
+                    continue;
+                string text = b.GetHudParams(false)?.Select(h => h.Text?.ToString()).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+                string kind = b is Sandbox.Game.Entities.Blocks.MyLaserBroadcaster ? "laser"
+                    : parent is Sandbox.Game.Entities.Character.MyCharacter ? "suit"
+                    : b.IsBeacon ? "beacon" : "antenna";
+                var grid = parent as MyCubeGrid;
+                string body = grid != null ? (grid.IsStatic ? "station" : grid.GridSizeEnum == MyCubeSize.Large ? "large ship" : "small ship")
+                    : kind == "suit" ? "character" : "other";
+                Vector3D at = b.BroadcastPosition;
+                signals.Add(new KeyValuePair<double, object>(Vector3D.Distance(origin, at), new
+                {
+                    antennaId = b.AntennaEntityId.ToString(),
+                    entityId = parent.EntityId.ToString(),
+                    name = text ?? b.Info.Name ?? parent.DisplayName,
+                    gridName = grid?.DisplayName,
+                    kind,
+                    body,
+                    relation = Dto.Relation(MyIDModule.GetRelationPlayerBlock(b.Owner, me, MyOwnershipShareModeEnum.None)),
+                    position = Vec(at),
+                    distance = Math.Round(Vector3D.Distance(origin, at), 0),
+                    radius = b is Sandbox.Game.Entities.Cube.MyRadioBroadcaster radio ? Math.Round(radio.BroadcastRadius, 0) : (double?)null,
+                    // Heard directly by the listener's own receivers, or only through relays.
+                    direct = direct.Contains(b),
+                    ownShip = own.Contains(parent.EntityId),
+                }));
+            }
+            return new
+            {
+                listener = listener.DisplayName ?? listener.ToString(),
+                listenerKind = listener is MyCubeGrid ? "ship" : "suit",
+                signals = signals.OrderBy(s => s.Key).Select(s => s.Value).ToList(),
+            };
         }
 
         private static List<MyPlanet> Planets()
@@ -291,6 +360,8 @@ namespace SEMcp.Host
             var gun = GunBase(block);
             return gun != null && gun.HasAmmoMagazines ? gun.CurrentAmmoMagazineId.SubtypeName : null;
         }
+
+        public static int? LoadedRounds(Sandbox.ModAPI.IMyTerminalBlock block) => GunBase(block)?.CurrentAmmo;
 
         // The weapon's own switch. Runs where the weapon is simulated, so it only takes effect on the server (single player is fine).
         public static bool SwitchMagazine(Sandbox.ModAPI.IMyTerminalBlock block, MyDefinitionId magazine)

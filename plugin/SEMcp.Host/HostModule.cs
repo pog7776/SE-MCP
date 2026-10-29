@@ -41,6 +41,7 @@ namespace SEMcp.Host
                 AllowAutopilot = config.AllowAutopilot,
                 AllowWeapons = config.AllowWeapons,
                 CurrentMagazine = HostMethods.CurrentMagazine,
+                LoadedRounds = HostMethods.LoadedRounds,
                 SwitchMagazine = HostMethods.SwitchMagazine,
                 PbCompilerErrors = HostMethods.PbCompilerErrors,
                 CanConvey = HostMethods.CanConvey,

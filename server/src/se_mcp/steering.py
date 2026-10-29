@@ -184,3 +184,28 @@ async def align_to_sun(bridge: Bridge, grid_id: str, max_rpm: float = 1.0, force
     return (f"Turned {start_angle:.0f} deg; the solar panels are now {end_angle:.1f} deg off the sun. "
             f"Solar output {before_kw:.0f} -> {after_kw:.0f} kW (max {max_kw:.0f} kW). Gyros released. "
             "The sun moves slowly, so this drifts over time.")
+
+
+async def turn_to(bridge: Bridge, grid_id: str, current_direction: Callable[[], Awaitable[tuple[Vec, Vec]]],
+                  max_rpm: float = 1.0, force: bool = False, tolerance_deg: float = 2.0) -> str:
+    """Turn a ship until current_direction()'s ship vector points along its target vector, then release the gyros."""
+    motion = await bridge.call("grid.motion", {"gridId": grid_id})
+    if motion["isStatic"]:
+        return "That's a station (static grid); it can't be rotated."
+    if motion["gravityG"] > 0.05 and not force:
+        return (f"The ship is in {motion['gravityG']:.2f} g of natural gravity. Turning it could tip it over or crash it, "
+                "so I won't unless you confirm (force=True).")
+    vector, target = await current_direction()
+    start = math.degrees(angle_between(vector, target))
+    if start < tolerance_deg:
+        return f"Already lined up ({start:.1f} deg off)."
+    steering = Steering(bridge, grid_id)
+    try:
+        await steering.take_control()
+        await steering.calibrate(perpendicular_overrides(vector, steering.gyros[0]))
+        end = await steering.point(current_direction, max_rpm=max_rpm, tolerance_deg=tolerance_deg)
+    except SteeringError as e:
+        return f"Stopped: {e} Gyros released."
+    finally:
+        await steering.release()
+    return f"Turned the ship {start:.0f} deg (now {end:.1f} deg off). Gyros released."

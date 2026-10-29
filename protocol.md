@@ -217,13 +217,23 @@ Weapons are `IMyUserControllableGun` blocks (turrets and fixed guns) and custom 
 
 | Method | Params | Returns |
 |---|---|---|
-| `weapons.get` | `gridId` | `gridName`, `weapons[]` (`id`, `name`, `type`, `kind` (`turret`/`fixed`/`turret controller`), `gridName`, `enabled`, `working`, `integrity`; guns: `shooting`, `magazines[]` (accepted subtypes), `loaded`, `magazinesInside`; turrets and controllers: `ai`, `underControl`, `hasTarget`, `aimed`, `target` (detected entity, as `camera.raycast` hits), `range`, `targets` (flags), `targetingGroup`, `targetingGroups[]`; turrets: `idleRotation`, `azimuthDeg`, `elevationDeg`; controllers: `tools[]`, `camera`, `azimuthRotor`, `elevationRotor`), `ammo` (per accepted magazine subtype: `name`, `rounds` per magazine, `carried` on the construct) |
-| `turret.set` | `blockId` or `blockIds[]`; any of `reset`, `range`, `idleRotation`, `targetingGroup`, `targets` (`{enemies, neutrals, characters, largeGrids, smallGrids, stations, missiles, meteors}`; controllers take `friends` instead of `enemies`) | `changed[]`. `reset` = `ResetTargetingToDefault` (undo `turret.aim`) |
+| `weapons.get` | `gridId` | `gridName`, `weapons[]` (`id`, `name`, `type`, `kind` (`turret`/`fixed`/`turret controller`), `gridName`, `enabled`, `working`, `integrity`; guns: `shooting`, `magazines[]` (accepted subtypes), `loaded`, `roundsLoaded` (left in the loaded magazine), `magazinesInside`, `position`, `forward`, `up` (how it's mounted); turrets and controllers: `ai`, `underControl`, `hasTarget`, `aimed`, `target` (detected entity, as `camera.raycast` hits), `range`, `targets` (flags), `targetingGroup`, `targetingGroups[]`; turrets: `idleRotation`, `azimuthDeg`, `elevationDeg`, `aimDirection` (barrel, world space); controllers: `tools[]`, `camera`, `azimuthRotor`, `elevationRotor`), `ammo` (per accepted magazine subtype: `name`, `rounds` per magazine, `carried` on the construct) |
+| `turret.set` | `blockId` or `blockIds[]`; any of `reset` (keeps idle rotation as it was), `range`, `idleRotation`, `targetingGroup`, `targets` (`{enemies, neutrals, characters, largeGrids, smallGrids, stations, missiles, meteors}`; controllers take `friends` instead of `enemies`) | `changed[]`. `reset` = `ResetTargetingToDefault` (undo `turret.aim`) |
 | `turret.aim` | `blockId(s)`; `position` (+ `velocity` to lead a moving target), or `entityId`, or `azimuth`/`elevation` (degrees) | `aimed[]`. `SetTarget`/`TrackTarget`/`SetManualAzimuthAndElevation`. Controllers only take `entityId`; fixed guns refuse |
 | `weapon.fire` | `blockId(s)`, `mode` (`once`/`on`/`off`) | `fired[]`, `mode`. Terminal actions `ShootOnce`/`Shoot_On`/`Shoot_Off` (sync like a timer or PB) |
 | `weapon.magazine` | `blockId`, `magazine` (subtype or display name; must be one the weapon accepts) | `before`, `after`, `switched`, `magazine`. Host hook: `MyGunBase.SwitchAmmoMagazine`; server/single player only |
 | `camera.track` | `gridId`, `position` (where the target should be now), `entityId?` (the target being tracked), `overshoot?`=50 | `camera` (the one used), `hit`, `lost` (nothing hit, or a different entity), `scanRangeLeft`; or `camera: null` + `notReady[]` (`camera`, `reason` `charging`/`outside its view cone`, `msUntilScan`). One step of a lidar-style track: raycasts a little past the point with the most-charged camera that can scan it |
 | `damage.get` | `gridId` | `gridName`, `blocks` (count), `damaged[]` (`id` for terminal blocks, `name`, `type`, `gridName`, `position`, `integrity`, `damage`, `functional`, `deformed`, `missing` components) |
+
+## Radio methods (M7)
+
+| Method | Params | Returns |
+|---|---|---|
+| `radio.signals` (host) | `gridId?` (listen from that ship; default the player: their suit, or the ship they control) | `listener`, `listenerKind` (`ship`/`suit`), `signals[]` nearest first: `antennaId`, `entityId` (the grid or character carrying it), `name` (HUD text), `gridName`, `kind` (`antenna`/`beacon`/`laser`/`suit`), `body` (`large ship`/`small ship`/`station`/`character`), `relation`, `position`, `distance`, `radius`, `direct` (false = only heard through relays), `ownShip` (on the listener's own construct). `MyAntennaSystem.GetAllRelayedBroadcasters`: what the HUD shows |
+| `radio.antennas` | `gridId` | `gridName`, `equipment[]`: `id`, `name`, `gridName`, `enabled`, `working`, `position`, `forward`, `up`, `kind`; antennas: `radius`, `broadcasting`, `isBroadcasting`, `hudText`, `showShipName`; beacons: `radius`, `hudText`; lasers: `status`, `range` (null = unlimited), `targetCoords`, `permanent`, `requireLoS`, `outsideLimits`, `other` (`id`, `name`, `gridName` of the linked laser) |
+| `radio.set` | `blockId`; any of `enabled`, `radius`, `broadcasting`, `hudText`, `showShipName` (antennas and beacons) | the grid's `radio.antennas` |
+| `laser.connect` | `blockId`, `target?` (`[x,y,z]`), `permanent?` | `block`, `status`. `SetTargetCoords` + `Connect`, like the terminal; the other laser must aim back and have line of sight |
+| `laser.idle` | `blockId` | `block`, `status`. The `Idle` terminal action (drops the link) |
 
 ## Host-only methods
 

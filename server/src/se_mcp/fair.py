@@ -104,3 +104,11 @@ TOOLS.update({
     "track_target": Fairness("sensed", "construct", "camera raycasts only; GPS/coords start points must come from a fair source"),
     "damage_report": Fairness("own", None),
 })
+
+TOOLS.update({
+    "contacts": Fairness("sensed", None, "radio, turrets and sensors only"),
+    "radio_signals": Fairness("sensed", None, "what the HUD shows from antennas and beacons in range or relayed"),
+    "radio_equipment": Fairness("own", None),
+    "set_radio": Fairness("own", "construct"),
+    "laser_link": Fairness("own", "construct", "aims both ends when the other laser is on our own grid (its terminal, via the network)"),
+})

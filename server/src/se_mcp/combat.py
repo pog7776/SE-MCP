@@ -47,7 +47,8 @@ def weapon_line(w: dict[str, Any], ammo: dict[str, Any], ship: str = "") -> str:
     parts = [f"- {w['name']} ({w['kind']}{where}): {state}"]
     if w["kind"] != "turret controller":
         loaded = ammo.get(w.get("loaded") or "", {}).get("name") or w.get("loaded") or "nothing"
-        parts.append(f"loaded {loaded}, {w.get('magazinesInside', 0):g} mag(s) inside")
+        rounds = f" ({w['roundsLoaded']} rounds)" if w.get("roundsLoaded") is not None else ""
+        parts.append(f"loaded {loaded}{rounds}, {w.get('magazinesInside', 0):g} mag(s) inside")
         if len(w.get("magazines", [])) > 1:
             parts.append("takes " + " / ".join(ammo.get(m, {}).get("name", m) for m in w["magazines"]))
         if w.get("shooting"):
@@ -124,3 +125,45 @@ def no_fix_text(r: dict[str, Any]) -> str:
         soonest = min(t["msUntilScan"] for t in charging) / 1000
         return f"The cameras that can see there are still charging ({soonest:.1f} s)."
     return "No camera could scan there."
+
+
+def contacts_text(ship: str, heard: dict[str, Any], w: dict[str, Any], sensed: dict[str, Any], include_friendly: bool) -> str:
+    """One list of what's out there, merged per entity, from radio, turrets and sensors."""
+    from .radio import clean
+
+    found: dict[str, dict[str, Any]] = {}
+
+    def add(eid: str, name: str, relation: str, distance: float, source: str, **extra: Any) -> None:
+        c = found.setdefault(eid, {"name": name, "relation": relation, "distance": distance, "sources": [], **extra})
+        c["distance"] = min(c["distance"], distance)
+        if source not in c["sources"]:
+            c["sources"].append(source)
+        for k, v in extra.items():
+            c.setdefault(k, v)
+
+    for s in heard["signals"]:
+        if s.get("ownShip") or (s["kind"] == "suit" and s["relation"] == "owner"):
+            continue
+        add(s["entityId"], s.get("gridName") or clean(s["name"]), s["relation"], s["distance"],
+            f"radio ({s['kind']}{'' if s['direct'] else ', relayed'})", body=s["body"], speed=s.get("speed"))
+    for weapon in w["weapons"]:
+        t = weapon.get("target")
+        if t:
+            add(t["id"], clean(t.get("name")) or t["type"], t["relation"], t["distance"], f"targeted by {weapon['name']}",
+                speed=t.get("speed"))
+    for sensor in sensed["sensors"]:
+        for d in sensor["detected"]:
+            add(d["id"], clean(d.get("name")) or d["type"], d["relation"], d["distance"], f"sensor {sensor['name']}",
+                speed=d.get("speed"))
+
+    order = {"enemies": 0, "nobody": 1, "neutral": 1, "friend": 2, "faction": 2, "owner": 3}
+    shown = [c for c in found.values() if include_friendly or order.get(c["relation"], 1) < 2]
+    if not shown:
+        return f"{ship}: no contacts."
+    shown.sort(key=lambda c: (order.get(c["relation"], 1), c["distance"]))
+    lines = [f"{ship}: {len(shown)} contact(s), hostile and unknown first."]
+    for c in shown:
+        speed = f", {c['speed']:.1f} m/s" if c.get("speed") else ""
+        body = f" {c['body']}," if c.get("body") else ""
+        lines.append(f"- {c['name']} ({c['relation']}):{body} {c['distance']:,.0f} m{speed}; via {'; '.join(c['sources'])}")
+    return "\n".join(lines)
