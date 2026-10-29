@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text.Json.Nodes;
 using Sandbox.Definitions;
+using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.World;
 using Sandbox.ModAPI;
 using SEMcp.Core;
@@ -19,6 +22,13 @@ namespace SEMcp.Host
             dispatcher.Register("sun.info", p => SunInfo(access, p));
             dispatcher.Register("grid.motion", p => Motion(access, p));
         }
+
+        private static readonly FieldInfo CompilerErrorsField =
+            typeof(MyProgrammableBlock).GetField("m_compilerErrors", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        // MyProgrammableBlock.m_compilerErrors: filled by each compile (server side), shown only in the code editor.
+        public static IList<string> PbCompilerErrors(Sandbox.ModAPI.IMyProgrammableBlock pb) =>
+            CompilerErrorsField?.GetValue(pb) is List<string> errors ? errors.ToList() : null;
 
         private static object Vec(Vector3D v) => new[] { Math.Round(v.X, 5), Math.Round(v.Y, 5), Math.Round(v.Z, 5) };
 

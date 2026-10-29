@@ -36,6 +36,8 @@ namespace SEMcp.Host
                 IsSessionReady = () => MySession.Static?.Ready == true,
                 MaxRangeMeters = config.MaxRangeMeters,
                 ReadOnly = config.ReadOnly,
+                AllowPbCodePush = config.AllowPbCodePush,
+                PbCompilerErrors = HostMethods.PbCompilerErrors,
                 Log = message => context.Log(message),
             });
 

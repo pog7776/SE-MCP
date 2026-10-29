@@ -2,7 +2,7 @@
 
 Lets an AI assistant (over MCP) see and control your Space Engineers 1 ships, stations and suit. See [PLAN.md](PLAN.md) for the design and [protocol.md](protocol.md) for the wire protocol.
 
-Status: **M3 (control)**. Read ships, blocks, inventories, production, suit and the crosshair target, take screenshots, and run terminal actions, set properties, rename, toggle blocks and show messages in-game. Tools: `se_status`, `list_grids`, `ship_status`, `list_blocks`, `inspect_block`, `looked_at`, `list_groups`, `inventory`, `suit_status`, `screenshot`, `production`, `block_action`, `group_action`, `set_block_property`, `toggle_blocks`, `rename_block`, `set_custom_data`, `say`, `align_to_sun`. Set `"readOnly": true` in `config.json` to block all changes.
+Status: **M4 (programmable blocks)**. Read ships, blocks, inventories, production, suit and the crosshair target, take screenshots, and run terminal actions, set properties, rename, toggle blocks and show messages in-game. Write, compile and run programmable block scripts, with the compiler's errors and a backup of the old code. Tools: `se_status`, `list_grids`, `ship_status`, `list_blocks`, `inspect_block`, `looked_at`, `list_groups`, `inventory`, `suit_status`, `screenshot`, `production`, `block_action`, `group_action`, `set_block_property`, `toggle_blocks`, `rename_block`, `set_custom_data`, `say`, `align_to_sun`, `read_pb_code`, `write_pb_script`, `run_pb`, `pb_output`, `recompile_pb`. Resource: `se://pb-primer`. Set `"readOnly": true` in `config.json` to block all changes.
 
 ```
 Claude ──MCP/stdio──▶ server/ (Python) ──TCP 127.0.0.1:8765──▶ SEMcp.Loader ─loads─▶ SEMcp.Host + SEMcp.Core (in game)

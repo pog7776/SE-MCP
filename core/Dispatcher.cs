@@ -24,6 +24,7 @@ namespace SEMcp.Core
             new PlayerService(this, access).Register();
             new ControlService(this, access).Register();
             new ProductionService(this, access).Register();
+            new ProgrammableBlockService(this, access).Register();
         }
 
         public void Register(string method, Func<JsonObject, object> handler)

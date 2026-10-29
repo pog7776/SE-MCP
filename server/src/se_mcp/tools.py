@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable
 from mcp.server.mcpserver import Image, MCPServer
 
 from . import format as fmt
+from . import pb
 from . import resolve
 from .bridge import Bridge, BridgeError
 from .resolve import ResolveError
@@ -17,7 +18,8 @@ INSTRUCTIONS = (
     "Tools for assisting a player in Space Engineers 1 through the SEMcp game plugin. "
     "Start with se_status to see whether the game is running and what the player is in or looking at. "
     "Grid and block arguments take a name (fuzzy matched) or an id; leaving `grid` empty means the ship "
-    "the player is controlling or standing in. Use screenshot to see what the player sees."
+    "the player is controlling or standing in. Use screenshot to see what the player sees. "
+    "Before writing a programmable block script, read the se://pb-primer resource."
 )
 
 
@@ -248,6 +250,69 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         params: dict[str, Any] = {"text": text, "kind": "chat" if chat else "hud", "durationMs": int(seconds * 1000)}
         await bridge.call("notify", params)
         return "Shown in chat." if chat else "Shown on the HUD."
+
+    # --- Programmable blocks. ---
+
+    async def _pb(block: str, grid: str | None) -> dict[str, Any]:
+        target = await resolve.block(bridge, block, grid)
+        return await bridge.call("pb.get", {"blockId": target["id"]})
+
+    @tool
+    async def read_pb_code(block: str, grid: str | None = None) -> str:
+        """The script in a programmable block, plus its current output (Echo text, compile or runtime errors)."""
+        state = await _pb(block, grid)
+        code = state.get("code") or ""
+        header = f"{pb.status_line(state)} {len(code)} chars."
+        if state.get("terminalArgument"):
+            header += f" Default run argument: {state['terminalArgument']!r}."
+        body = f"```csharp\n{code}\n```" if code.strip() else "(no script)"
+        return f"{header}\n{body}\nOutput:\n{pb.output_text(state)}"
+
+    @tool
+    async def write_pb_script(block: str, code: str, grid: str | None = None, run_argument: str | None = None) -> str:
+        """Replace a programmable block's script and compile it. Returns the compile result.
+
+        code is the body of the Program class (no namespace/class/usings); read the se://pb-primer resource
+        first if unsure. The old script is backed up to a local file first. run_argument, if given, runs the
+        script once after a clean compile."""
+        state = await _pb(block, grid)
+        saved = pb.backup(state, state.get("code") or "")
+        state = await bridge.call("pb.set_code", {"blockId": state["id"], "code": code})
+        state = await pb.wait_for_output(bridge, state["id"])
+        lines = [pb.status_line(state), "Output:", pb.output_text(state)]
+        if saved:
+            lines.append(f"(Previous script backed up to {saved})")
+        if run_argument is not None and state.get("hasCompileErrors") is False and state.get("working"):
+            lines.append("")
+            lines.append(await run_pb(block=state["id"], argument=run_argument))
+        return "\n".join(lines)
+
+    @tool
+    async def run_pb(block: str, argument: str = "", grid: str | None = None) -> str:
+        """Run a programmable block once with an argument, like pressing Run in the terminal. Returns its output."""
+        target = await resolve.block(bridge, block, grid)
+        await bridge.call("pb.run", {"blockId": target["id"], "argument": argument})
+        state = await pb.wait_for_output(bridge, target["id"])
+        return f"Ran {state.get('name')} with argument {argument!r}. Output:\n{pb.output_text(state)}"
+
+    @tool
+    async def pb_output(block: str, grid: str | None = None) -> str:
+        """A programmable block's current output (its terminal info: Echo text, errors). Scripts that run on a
+        timer (UpdateFrequency) refresh this on their own."""
+        state = await _pb(block, grid)
+        return f"{pb.status_line(state)}\n{pb.output_text(state)}"
+
+    @tool
+    async def recompile_pb(block: str, grid: str | None = None) -> str:
+        """Recompile a programmable block's current script (restarts it, and clears a crashed script)."""
+        target = await resolve.block(bridge, block, grid)
+        await bridge.call("pb.recompile", {"blockId": target["id"]})
+        state = await pb.wait_for_output(bridge, target["id"])
+        return f"{pb.status_line(state)}\nOutput:\n{pb.output_text(state)}"
+
+    @server.resource("se://pb-primer", name="pb-primer", description="How to write Space Engineers programmable block scripts")
+    def pb_primer() -> str:
+        return pb.primer()
 
     @tool
     async def align_to_sun(grid: str | None = None, max_rpm: float = 1.0, force: bool = False) -> str:

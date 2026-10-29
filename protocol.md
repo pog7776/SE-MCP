@@ -102,6 +102,30 @@ These write to the game, so they all fail with `read_only` when `readOnly` is on
 | `block.set_custom_data` | `blockId`, `value` | `block`, `beforeLength`, `afterLength` |
 | `notify` | `text`, `kind?` (`hud` default, or `chat`), `durationMs?` (hud, 500–60000, default 5000), `font?`, `sender?` (chat, default "Claude") | `shown`, `kind` |
 
+## Programmable block methods (M4)
+
+All take `blockId` (a programmable block, otherwise `invalid_params`) and return the PB state:
+
+- `id`, `name`, `enabled`, `working`
+- `scriptsEnabled`: the world setting
+- `isServer`: false on a multiplayer client. There the server compiles and runs scripts, so `output` arrives a moment later.
+- `hasCompileErrors`: null on a client
+- `terminalArgument`: the default run argument
+- `codeLength`, plus `code` (only from `pb.get`)
+- `output`: the block's DetailedInfo, which holds Echo text and exceptions
+- `compilerMessages[]`: errors and warnings from the last compile. The game keeps these private, so the host reads them with reflection. Null if unavailable.
+
+In single player, compiling finishes before the call returns.
+
+| Method | Params | Notes |
+|---|---|---|
+| `pb.get` | `blockId`, `includeCode?`=true | |
+| `pb.set_code` | `blockId`, `code` | Sets `ProgramData`, which recompiles. Blocked by `readOnly` and by `allowPbCodePush: false` |
+| `pb.recompile` | `blockId` | Like the terminal's Recompile button |
+| `pb.run` | `blockId`, `argument?` (default: the terminal argument) | Runs with `UpdateType.Terminal`, like pressing Run. `invalid_params` when the block isn't working |
+
+The Python `write_pb_script` tool saves the previous code to `%AppData%\SpaceEngineers\SEMcp\pb-backups\` before replacing it. The `se://pb-primer` MCP resource explains how PB scripts are written.
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host/HostMethods.cs` rather than Core.

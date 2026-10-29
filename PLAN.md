@@ -216,7 +216,7 @@ Client config (README):
 1. ✅ **Skeleton**: Loader + Host + Core, TCP + auth, `ping`, `debug.reload` + auto-reload on build, `net48` + `net9.0` (Legacy + Interim). Python `se_status`. Verify end-to-end from Claude Code and from `npx @modelcontextprotocol/inspector`.
 2. ✅ **See the world**: `session.info`, `player.context`, `grids.list`, `grid.get`, `blocks.list`, `block.get`, `groups.list`, `character.status`, `inventory.get`, and screenshots (window capture first, in-engine next). Matching tools, name resolution, the current-grid default. (Screenshots are window capture via PrintWindow. In-engine capture comes in M6.)
 3. ✅ **Control**: `block.action`, `block.set_property`, set name/custom data, group actions, `notify`, `readOnly`, access + range checks, `production.get`.
-4. **Programmable blocks**: get/set code, recompile, run, output, the primer. Loop test: push an Echo script, read the output, break it, read the compile error, fix it.
+4. ✅ **Programmable blocks**: `pb.get` / `pb.set_code` / `pb.recompile` / `pb.run`, the primer, code backups. Compiler messages come from the host, because the game discards them outside the editor. The loop test passed live: push, run, break, read the errors, fix.
 5. **Autopilot + GPS**: `rc.fly_to` / `rc.stop`, GPS list/add/remove.
 6. **Vision + sensing**: see through camera blocks without touching the player's view, camera raycasts, sensor blocks, in-engine screenshots. See below.
 7. **Polish**: README, protocol.md, fake-bridge tests, error messages, `debug.selftest`.
