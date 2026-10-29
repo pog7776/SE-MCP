@@ -265,6 +265,7 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
    - Done: `screens.list` / `screen.write` / `screen.mode`, and the tools `list_screens`, `write_screen` (by screen name, with styling; reports a replaced script) and `set_screen_mode`.
    - Verified live on the Control Seat's spare screen and photographed with `screenshot(hide_hud=True)`.
    - Later: sprites (`DrawFrame`) for drawn status boards or a face.
+   - Later: a "Claude Display" app (a text surface script, `[MyTextSurfaceScript]` registered via `MyTextSurfaceScriptFactory.Instance.RegisterFromAssembly`). It draws whatever the assistant sends (animated boards, graphs, the AI face) with no PB. Apps run on each client, so in multiplayer others need it too, which means shipping the class in a companion workshop mod. Pairs with M10 Companion.
 5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
 6. **Suit**: helmet, jetpack, dampeners, lights.
 7. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
