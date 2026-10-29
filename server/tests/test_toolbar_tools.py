@@ -47,8 +47,26 @@ async def test_set_player_slot_with_a_block_to_build():
 
     h["toolbar.set"] = set_slot
     text = await _call(h, "set_toolbar_slot", {"page": 3, "slot": 9, "item": "ore detector"})
-    assert sent[0] == {"page": 3, "slot": 9, "definitionId": "OreDetector/LargeOreDetector"}  # large preferred, no blockId = player
+    assert sent[0] == {"page": 3, "slot": 9, "itemName": "ore detector"}  # in-game name first; no blockId = player
     assert text == "your toolbar: empty  ->  3.9  Ore Detector (cubeblock)"
+
+
+async def test_set_player_slot_falls_back_to_closest_block():
+    h = default_handlers()
+    h["blockdefs.find"] = lambda p: {"blocks": [{"id": "OreDetector/SmallBlockOreDetector", "name": "Ore Detector", "size": "small"},
+                                                {"id": "OreDetector/LargeOreDetector", "name": "Ore Detector", "size": "large"}]}
+    sent: list[dict[str, Any]] = []
+
+    def set_slot(p: dict[str, Any]) -> dict[str, Any]:
+        sent.append(dict(p))
+        if "itemName" in p:
+            raise LookupError("Nothing called 'ore det'")
+        return {"owner": "player", "before": None,
+                "after": {"index": 26, "page": 3, "slot": 9, "text": "Ore Detector", "kind": "cubeblock"}}
+
+    h["toolbar.set"] = set_slot
+    await _call(h, "set_toolbar_slot", {"page": 3, "slot": 9, "item": "ore det"})
+    assert sent[-1] == {"page": 3, "slot": 9, "definitionId": "OreDetector/LargeOreDetector"}  # large preferred
 
 
 def test_group_text():
