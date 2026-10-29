@@ -223,7 +223,7 @@ Client config (README):
 8. **Fair play**: a switchable mode that limits what the assistant knows and can reach to what the ship could plausibly sense and talk to. See below.
 9. **Polish**: README, protocol.md, fake-bridge tests, error messages, a `selftest` tool, and the first real run of the Interim (.NET 10) build (deliberately left until all milestones are done). The end-to-end MCP stdio run already passes for every read tool.
 10. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game, plus game events (damage, destroyed blocks, low resources, chat, new contacts). See below.
-11. **In-game UI and displays**: the MCP Display screen app, the assistant's own HUD and windows, Text HUD API support, and (opt-in) authoring new screen apps at runtime. See below.
+11. **In-game UI and displays**: the MCP Display screen app, the assistant's own HUD and windows, and (opt-in) authoring new screen apps at runtime. See below.
 
 ### M6: Vision + sensing
 
@@ -268,13 +268,15 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
    - Later: sprites (`DrawFrame`) for drawn status boards or a face.
    - Later: the "MCP Display" app (M11).
    - The tools are dynamic: `set_screen_mode` checks the screen's own app list (`GetScripts()`) at call time, so modded apps work. They work on any block screen (`IMyTextSurfaceProvider`), modded blocks included.
+Remaining items, reordered by value for effort, quick wins first and docking last because it needs new flight control:
+
 5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
 6. **Suit**: helmet, jetpack, dampeners, lights.
-7. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
-8. **Forecasts**: battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
-9. **Ore detectors**: what the ship's ore detectors currently see (the HUD ore markers), as summaries or GPS points. No reading the map's voxel data directly, which would be cheating.
+7. **Safety net**: save the world before risky operations, such as long autopilot runs or docking.
+8. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
+9. **Forecasts**: battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
 10. **Combat**: what turrets are targeting and their ammo; select or change targets.
-11. **Safety net**: save the world before risky operations, such as long autopilot runs or docking.
+11. **Ore detectors**: what the ship's ore detectors currently see (the HUD ore markers), as summaries or GPS points. No reading the map's voxel data directly, which would be cheating.
 12. **Docking**:
     - Read connector, merge block and landing gear status.
     - Dock a ship myself: RC precision mode for the approach, then a final approach using gyro steering plus thruster overrides, connector lined up with connector, then Connect once the status is "Connectable".
@@ -321,10 +323,7 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
 - **The assistant's own UI**: the plugin has full access to the game's GUI (`MyGuiSandbox`, `MyGuiScreenBase`, HUD drawing).
   - Possible pieces: a chat/console window for talking to the AI (pairs with M10), confirmation prompts ("Organize the cargo? Yes/No"), HUD overlays (text, markers, bars), and highlights that point at things.
   - Hot reload: open screens must be closed in `Stop()`.
-- **Text HUD API support** (DraygoKorvan's mod, workshop 758597413; its page currently says removed/hidden):
-  - Other mods use it through the `HudAPIv2` class, which registers over ModAPI mod messages; it's client-side only.
-  - If a world has it loaded, draw our HUD text through it so it matches other mods.
-  - Otherwise use our own HUD drawing (the default).
+  - Our own HUD drawing only. Text HUD API (workshop 758597413) was considered and dropped.
 - **Authoring new apps at runtime** (opt-in, off by default): an endpoint takes C# for a screen app, compiles it with the game's own script compiler against the mod whitelist (as for PBs and mods), registers it under a versioned id, and reports compiler errors like `write_pb_script`. It runs code inside the game, so it's gated in config and local only. MCP Display should cover most needs first.
 
 ## Testing
