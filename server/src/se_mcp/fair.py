@@ -138,3 +138,11 @@ TOOLS.update({
     "surface_map": Fairness("own", None, "raycasts against grids; other ships' surfaces: fair mode should limit to what cameras could see"),
     "land": Fairness("own", "construct", "the target surface is measured with raycasts; fine for our own ships/stations"),
 })
+
+TOOLS.update({
+    "hud_draw": Fairness("own", None, "a HUD aid shown only to the player; markers on things you can't see are M8's to filter"),
+    "hud_ship_panel": Fairness("own", None, "a HUD aid shown only to the player"),
+    "hud_remove": Fairness("own", None),
+    "hud_clear": Fairness("own", None),
+    "hud_list": Fairness("own", None),
+})

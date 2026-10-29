@@ -344,6 +344,9 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
   - Multiplayer: other players see it only if they have the app. To fix that, ship the same class in a small companion workshop mod.
 - **The assistant's own UI**: the plugin has full access to the game's GUI (`MyGuiSandbox`, `MyGuiScreenBase`, HUD drawing).
   - Possible pieces: a chat/console window for talking to the AI (pairs with M10), confirmation prompts ("Organize the cargo? Yes/No"), HUD overlays (text, markers, bars), and highlights that point at things.
+  - ✅ **HUD overlay** (pulled forward from M11, verified in game): `hud_draw` (text, boxes, bars, world markers pinned to a block/grid/position; upsert by id; `bind` to a read-only method keeps it live; `ttl`), `hud_ship_panel` (live H2/O2/battery/uranium/cargo/speed panel, bars go red when low), `hud_remove`, `hud_clear`, `hud_list`. A focus-less `MyGuiScreenBase` above the HUD, closed on host stop.
+    - Next: lines/arrows (rotated sprites), icons from the HUD atlas, an off-screen arrow for markers behind you, progress/countdown helpers, and a shared layout so panels don't overlap.
+    - Fair play (M8): markers on things the player can't sense should be filtered like `list_grids`.
   - Hot reload: open screens must be closed in `Stop()`.
   - Our own HUD drawing only. Text HUD API (workshop 758597413) was considered and dropped.
 - **Authoring new apps at runtime** (opt-in, off by default): an endpoint takes C# for a screen app, compiles it with the game's own script compiler against the mod whitelist (as for PBs and mods), registers it under a versioned id, and reports compiler errors like `write_pb_script`. It runs code inside the game, so it's gated in config and local only. MCP Display should cover most needs first.

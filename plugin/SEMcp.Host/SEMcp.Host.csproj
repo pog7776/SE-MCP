@@ -20,6 +20,11 @@
     <Reference Include="0Harmony" HintPath="$(PulsarDir)\Libraries\Legacy\0Harmony.dll" Private="false" />
   </ItemGroup>
 
+  <!-- HUD overlay screen (MyGuiScreenBase, MyGuiManager). -->
+  <ItemGroup>
+    <Reference Include="Sandbox.Graphics" HintPath="$(SEBin)\Sandbox.Graphics.dll" Private="false" />
+  </ItemGroup>
+
   <!-- The loader watches this folder and hot-reloads Host + Core when they change. -->
   <Target Name="DeployHost" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(TargetFramework)' != ''">
     <ItemGroup>

@@ -52,6 +52,7 @@ namespace SEMcp.Host
 
             HostMethods.Register(dispatcher);
             ToolbarMethods.Register(dispatcher);
+            OverlayMethods.Register(dispatcher);
             StartCapture();
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);
@@ -67,6 +68,7 @@ namespace SEMcp.Host
         {
             server?.Stop();
             HostMethods.ClearAllHighlights();
+            OverlayMethods.Close();
             capture?.Dispose();
             capture = null;
             AppDomain.CurrentDomain.AssemblyResolve -= ResolveLoaded;

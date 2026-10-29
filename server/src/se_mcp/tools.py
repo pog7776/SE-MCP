@@ -20,6 +20,7 @@ from . import hud as hud_mod
 from . import items as items_mod
 from . import ore as ore_mod
 from . import organizer
+from . import overlay as overlay_mod
 from . import production as production_mod
 from . import radio
 from . import surface as surface_mod
@@ -358,6 +359,94 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         """Turn off every highlight made with highlight_blocks."""
         r = await bridge.call("highlight.clear", {})
         return f"Cleared {r['cleared']} highlight(s)."
+
+    # --- HUD overlay: text, boxes, bars and markers drawn on the player's screen. ---
+
+    @tool
+    async def hud_draw(elements: list[dict[str, Any]]) -> str:
+        """Draw on the player's HUD (only they see it; hidden with the HUD and while a menu or terminal is open).
+        Each element: {"id", "kind": "text"|"rect"|"bar"|"marker", ...}. Setting an existing id changes only the
+        fields given, so you can move, recolour or retext it.
+        - Position: x, y = fractions of the screen (0,0 top-left; 1,1 bottom-right); w, h for rect and bar.
+        - text: may hold {path} placeholders read from the bound data ("{hydrogen.fill}"), {pct} for a bar's
+          percentage, {dist} for a marker's distance. scale (0.6 small .. 1.2 big), align left|center|right,
+          font "White"|"Red"|"Green"|"Blue"|"Monospace".
+        - color "#RRGGBB[AA]"; background for text/bar; rect: fill true|false, thickness (px).
+        - bar: value + max, or valuePath/maxPath from the bound data; lowBelow (percent) + lowColor to warn.
+        - marker: a box and label pinned to a world spot: block or grid (name/id), or position [x, y, z].
+        - bind: {"method": "ship.hud", "params": {"grid": "Red Ship"}, "every": 1} re-reads a read-only method
+          every few seconds so the element stays live (ship.hud, grid.get, character.status, inventory.get, ...).
+        - ttl: seconds until it disappears on its own.
+        For a ready-made fuel/power panel use hud_ship_panel."""
+        prepared = []
+        for e in elements:
+            e = dict(e)
+            if isinstance(e.get("bind"), dict):
+                bind = dict(e["bind"])
+                params = dict(bind.get("params") or {})
+                if "grid" in params:
+                    params["gridId"] = (await resolve.grid(bridge, params.pop("grid")))["id"]
+                if "block" in params:
+                    params["blockId"] = (await resolve.block(bridge, params.pop("block")))["id"]
+                bind["params"] = params
+                e["bind"] = bind
+            if e.get("block"):
+                e["blockId"] = (await resolve.block(bridge, str(e.pop("block")), e.pop("grid", None)))["id"]
+            elif e.get("grid"):
+                e["gridId"] = (await resolve.grid(bridge, str(e.pop("grid"))))["id"]
+            prepared.append(e)
+        r = await bridge.call("overlay.set", {"elements": prepared})
+        return f"Drew {', '.join(r['set'])} ({r['total']} element(s) on the HUD)."
+
+    @tool
+    async def hud_ship_panel(grid: str | None = None, show: list[str] | None = None, x: float = 0.015, y: float = 0.30,
+                             id: str | None = None) -> str:
+        """Put a live status panel for a ship on the player's HUD: title plus gauges that update every second.
+        show: any of hydrogen, oxygen, battery, uranium, cargo, speed (default hydrogen, battery, uranium).
+        Bars turn red when low. x, y: the panel's top-left as screen fractions (default: left edge, above middle).
+        Remove with hud_remove(id) (the id is returned) or hud_clear."""
+        target = await resolve.grid(bridge, grid)
+        prefix = id or f"ship-{target['id']}"
+        try:
+            elements = overlay_mod.ship_panel(prefix, target["id"], target.get("name") or "Ship", show or overlay_mod.DEFAULT_SHOW, x, y)
+        except ValueError as e:
+            return str(e)
+        await bridge.call("overlay.set", {"elements": elements})
+        return f"Panel '{prefix}' for {target.get('name') or 'the ship'} is on the HUD ({len(elements)} elements, live)."
+
+    @tool
+    async def hud_remove(ids: list[str]) -> str:
+        """Remove HUD overlay elements by id. A panel's id removes all its parts."""
+        listed = (await bridge.call("overlay.list", {}))["elements"]
+        chosen = [e["id"] for e in listed if any(e["id"] == i or e["id"].startswith(i + "-") for i in ids)]
+        r = await bridge.call("overlay.remove", {"ids": chosen})
+        return f"Removed {r['removed']} element(s); {r['total']} left."
+
+    @tool
+    async def hud_clear() -> str:
+        """Remove everything drawn with hud_draw / hud_ship_panel."""
+        r = await bridge.call("overlay.clear", {})
+        return f"Cleared {r['removed']} HUD element(s)."
+
+    @tool
+    async def hud_list() -> str:
+        """What's currently drawn on the player's HUD overlay."""
+        listed = (await bridge.call("overlay.list", {}))["elements"]
+        if not listed:
+            return "Nothing drawn on the HUD."
+        lines = []
+        for e in listed:
+            line = f"{e['id']}: {e['kind']} at ({e['x']:.3f}, {e['y']:.3f})"
+            if e.get("text"):
+                line += f" \"{e['text']}\""
+            if e.get("bind"):
+                line += f", live from {e['bind']}"
+            if e.get("bindError"):
+                line += f" (error: {e['bindError']})"
+            if e.get("expiresIn") is not None:
+                line += f", gone in {e['expiresIn']:g} s"
+            lines.append(line)
+        return "\n".join(lines)
 
     @tool
     async def production(grid: str | None = None) -> str:
