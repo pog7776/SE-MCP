@@ -1531,8 +1531,10 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             try:
                 await pilot.hold(0.0, tolerance=0.05, timeout_s=180, slow_within=3.0, slow_speed=0.3,
                                  until=lambda g: g["status"] == "ReadyToLock")
-            except docking.StallError:
+            except (docking.StallError, TimeoutError):
                 pass
+            # Hovering a few cm short is common: press the last bit in pulses (gyros keep holding the attitude).
+            await pilot.settle(lambda g: g["status"] == "ReadyToLock")
             if (await pilot.connector())["status"] == "ReadyToLock":
                 r = await bridge.call("dock.gear", {"gridId": ship["id"], "action": "lock"})
                 landed = any(g["mode"] == "Locked" for g in r["changed"])

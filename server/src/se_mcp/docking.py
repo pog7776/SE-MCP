@@ -155,6 +155,36 @@ class ConnectorPilot:
                 raise TimeoutError(f"still {length(error):.2f} m and {math.degrees(angle):.1f} deg off after {timeout_s:.0f} s")
 
 
+    async def settle(self, until: Callable[[dict[str, Any]], bool], pulses: int = 12, fraction: float = 0.05) -> dict[str, Any]:
+        """The last few centimeters: the closed loop asks for so little thrust there that the ship hovers (a 36 t
+        fighter didn't move on 2% overrides, did on 5%). Push toward the target in short pulses at `fraction`,
+        braking if it picks up speed, until until(connector) is true; returns the connector either way."""
+        toward = scale(self.target["forward"], -1)
+        m = await self.bridge.call("grid.motion", {"gridId": self.ship_id, "thrusters": True})
+        push = [t["id"] for t in m["thrusters"] if t["working"] and dot(t["push"], toward) > 0.98]
+        brake = [t["id"] for t in m["thrusters"] if t["working"] and dot(t["push"], toward) < -0.98]
+        # Gyros at zero spin hold the attitude (hold() leaves its last spin command in place).
+        await self.bridge.call("flight.set", {"gyros": {g["id"]: [0.0, 0.0, 0.0] for g in self.steering.gyros}})
+        conn = await self.connector()
+        for _ in range(pulses):
+            if until(conn):
+                break
+            await self.bridge.call("flight.set", {"thrusters": {i: fraction for i in push}})
+            await asyncio.sleep(0.25)
+            await self.bridge.call("flight.set", {"thrusters": {i: 0.0 for i in push}})
+            for _ in range(6):
+                await asyncio.sleep(0.1)
+                conn = await self.connector()
+                if until(conn):
+                    return conn
+            m = await self.bridge.call("grid.motion", {"gridId": self.ship_id})
+            if dot(m["linearVelocity"], toward) > 0.2:
+                await self.bridge.call("flight.set", {"thrusters": {i: fraction for i in brake}})
+                await asyncio.sleep(0.2)
+                await self.bridge.call("flight.set", {"thrusters": {i: 0.0 for i in brake}})
+        return conn
+
+
 class GearPilot(ConnectorPilot):
     """The same flying, with a landing gear / magnetic plate as the reference: its lock face (the block's down
     side) is brought onto a surface. The target is a point on the surface with forward = the surface normal."""

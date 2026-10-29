@@ -140,7 +140,7 @@ namespace SEMcp.Core.Services
                         entityId = (string)null,
                         block = (object)null,
                         position = SensingService.Vec(rock.Item2, 1),
-                        fromStart = Math.Round(Vector3D.Distance(from, rock.Item2), 1),
+                        fromStart = Math.Round(Vector3D.Distance(from, rock.Item2), 3),
                         voxel = true,
                     },
                 };
@@ -171,7 +171,7 @@ namespace SEMcp.Core.Services
                     entityId = entity != null ? Dto.Id(entity.EntityId) : null,
                     block,
                     position = SensingService.Vec(hit.Position, 1),
-                    fromStart = Math.Round(Vector3D.Distance(from, hit.Position), 1),
+                    fromStart = Math.Round(Vector3D.Distance(from, hit.Position), 3),
                 },
             };
         }
