@@ -63,3 +63,10 @@ TOOLS: dict[str, Fairness] = {
     "camera_scan": Fairness("sensed", "construct"),
     "sensors": Fairness("sensed", None),
 }
+
+TOOLS.update({
+    "recipe": Fairness("own", None, "game knowledge (recipes) plus the ship's own stock"),
+    "queue_production": Fairness("own", "construct"),
+    "remove_from_queue": Fairness("own", "construct"),
+    "clear_production_queue": Fairness("own", "construct"),
+})

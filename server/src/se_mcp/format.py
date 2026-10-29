@@ -235,7 +235,7 @@ def production(data: dict[str, Any]) -> str:
         extra_text = f", {', '.join(extra)}" if extra else ""
         lines.append(f"- {b['name']} ({b['displayType']}{extra_text}): {state}")
         for item in b.get("queue") or []:
-            lines.append(f"    {item['blueprint']} x{_amount(item['amount'])}")
+            lines.append(f"    #{item.get('index', '?')} {item['blueprint']} x{_amount(item['amount'])}")
         fills = [f"{label} {b[key]['fill']}%" for key, label in (("input", "input"), ("output", "output")) if b.get(key)]
         if fills:
             lines.append(f"    inventories: {', '.join(fills)}")

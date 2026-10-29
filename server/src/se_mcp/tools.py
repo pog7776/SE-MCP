@@ -12,6 +12,7 @@ from . import autopilot
 from . import format as fmt
 from . import items as items_mod
 from . import organizer
+from . import production as production_mod
 from . import pb
 from . import resolve
 from . import vision
@@ -166,6 +167,91 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         """Assemblers, refineries and survival kits on a ship: producing or not, queues, input/output fill."""
         target = await resolve.grid(bridge, grid)
         return fmt.production(await bridge.call("production.get", {"gridId": target["id"]}))
+
+    @tool
+    async def recipe(item: str, amount: float = 1, grid: str | None = None) -> str:
+        """How to make an item in this world: ingredients for `amount` (with the world's assembler efficiency
+        applied), time, which blocks make it, and whether the ship has enough. item: e.g. "steel plate", "iron ingot"."""
+        book = await production_mod.recipes(bridge)
+        wanted = production_mod.resolve_item(item, book)
+        have = None
+        try:
+            target = await resolve.grid(bridge, grid)
+            have = production_mod.ship_totals(await bridge.call("inventory.get", {"gridId": target["id"]}))
+        except ResolveError:
+            pass
+        name = items_mod.display(*wanted)
+        lines = []
+        for r in production_mod.producing(wanted, book):
+            runs = production_mod.runs_for(r, wanted, amount)
+            needs = production_mod.inputs_for(r, runs, book)
+            ingredient_text, short = production_mod.ingredient_lines(needs, have)
+            secs = production_mod.seconds_for(r, runs, book)
+            others = [o for o in r["outputs"] if (o["type"], o["subtype"]) != wanted]
+            lines.append(f"{items_mod.amount_text(amount, wanted[0])} {name} via '{r['name']}' in {', '.join(r['madeIn'])}, "
+                         f"~{production_mod.duration(secs)} on one block at world speed:")
+            lines += ingredient_text
+            if others:
+                lines.append("  also yields: " + ", ".join(f"{items_mod.amount_text(o['amount'] * runs, o['type'])} {items_mod.display(o['type'], o['subtype'])}" for o in others))
+            if short:
+                lines.append("  short: " + ", ".join(short))
+        return "\n".join(lines) if lines else f"Nothing makes {name}."
+
+    @tool
+    async def queue_production(item: str, amount: float = 1, assembler: str | None = None, grid: str | None = None) -> str:
+        """Queue items in an assembler (or survival kit / food processor), like clicking them in the production
+        screen. assembler: block name; empty = the working one on the ship with the shortest queue.
+        Reports ingredients the ship is short of (the queue still waits for them)."""
+        book = await production_mod.recipes(bridge)
+        wanted = production_mod.resolve_item(item, book)
+        candidates = [r for r in production_mod.producing(wanted, book) if not production_mod.is_refining(r)]
+        if not candidates:
+            return f"{items_mod.display(*wanted)} isn't made in an assembler (refineries make it from ore automatically)."
+        r = candidates[0]
+        target = await resolve.grid(bridge, grid)
+        block = await production_mod.pick_producer(bridge, target["id"], r, assembler)
+        runs = production_mod.runs_for(r, wanted, amount)
+        await bridge.call("production.queue", {"blockId": block["id"], "blueprint": r["id"], "amount": runs})
+        have = production_mod.ship_totals(await bridge.call("inventory.get", {"gridId": target["id"]}))
+        _, short = production_mod.ingredient_lines(production_mod.inputs_for(r, runs, book), have)
+        secs = production_mod.seconds_for(r, runs, book)
+        text = (f"Queued {items_mod.amount_text(amount, wanted[0])} {items_mod.display(*wanted)} in {block['name']} "
+                f"(~{production_mod.duration(secs)} at world speed, before upgrades or cooperative help).")
+        if short:
+            text += "\nShort of: " + ", ".join(short) + ". It'll wait for those."
+        return text
+
+    @tool
+    async def remove_from_queue(assembler: str, position: int | None = None, item: str | None = None,
+                                amount: float | None = None, grid: str | None = None) -> str:
+        """Remove an entry from a production queue: by position (#0 is first, as shown by production) or by item.
+        amount: how many to take off; empty = the whole entry."""
+        target = await resolve.grid(bridge, grid)
+        blocks = (await bridge.call("production.get", {"gridId": target["id"]}))["blocks"]
+        matches = [b for b in blocks if assembler.strip().lower() in b["name"].lower() or b["id"] == assembler.strip()]
+        if not matches:
+            return f"No production block matching '{assembler}'."
+        block = matches[0]
+        queue = block["queue"]
+        if position is None:
+            if not item:
+                return "Give a position or an item."
+            hits = [q for q in queue if items_mod.match(item, {("Blueprint", q["blueprint"])})]
+            if not hits:
+                return f"No '{item}' in {block['name']}'s queue: {', '.join(q['blueprint'] for q in queue) or 'empty'}."
+            position = hits[0]["index"]
+        params: dict[str, Any] = {"blockId": block["id"], "index": position}
+        if amount is not None:
+            params["amount"] = amount
+        r = await bridge.call("production.remove", params)
+        return f"Removed {r['amount']:g} {r['removed']} from {r['block']}'s queue."
+
+    @tool
+    async def clear_production_queue(assembler: str, grid: str | None = None) -> str:
+        """Empty a production block's whole queue."""
+        target = await resolve.block(bridge, assembler, grid)
+        r = await bridge.call("production.clear", {"blockId": target["id"]})
+        return f"Cleared {r['block']}'s queue."
 
     # --- Inventory management. Moves go through conveyors, like dragging items in the terminal. ---
 

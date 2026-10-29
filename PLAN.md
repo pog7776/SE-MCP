@@ -249,7 +249,11 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
    - **Primitives** for working through it together: move items between inventories (a type and amount, or "all"), pull everything of a type out of a block, and look up where an item is.
    - **Transfer rules:** moves go through conveyors like the terminal (`IMyInventory.CanTransferItemTo` / `TransferItemTo` with connection checks). Moves to or from the suit need the player seated on that construct or standing near the block.
    - **Organizer** (bundled): a tag on the container name or CustomData (`[Ore]`, `[Ingots]`, `[Components]`, `[Ammo]`, `[Tools]`, `[Ice]`, ...) sends those items there. Untagged items follow defaults: ore and stone to refineries or ore cargo, ice to H2/O2 generators, uranium to reactors, ammo to the guns that use it, ingots to assemblers or cargo, the rest to cargo. It always shows a plan first and moves only on approval.
-2. **Production**: queue, clear and reorder assembler jobs; refinery state; recipe and blueprint lookup from the definitions.
+2. ✅ **Production**:
+   - `recipes.list`, plus `production.queue` / `production.remove` / `production.clear`.
+   - Tools: `recipe` (world-adjusted cost, time, which blocks, ship shortfall), `queue_production` (picks the assembler), `remove_from_queue` and `clear_production_queue`.
+   - Verified live.
+   - Not done: reordering the queue (`MoveQueueItemRequest`) and refinery ore priority.
 3. **Build planning**: projector progress (remaining and buildable blocks, missing components) and component costs from block definitions. "What do I need to finish this, and what am I short of?"
 4. **Screens**: write text, and later sprites, on LCDs and cockpit screens. Status boards, and eventually the AI's own face.
 5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."

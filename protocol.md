@@ -174,6 +174,17 @@ The `rc.*` methods take `blockId` (a Remote Control) and return its state:
 - **How the move is sent:** through `MyInventory.TransferByUser`, the same validated request the screen sends. So it works in single player, when hosting, and as a multiplayer client.
 - **As a multiplayer client:** the server carries it out a moment later. The reply then has `pending: true`, and `moved` is the amount requested for the first stack.
 
+## Production methods (M7)
+
+| Method | Params | Returns |
+|---|---|---|
+| `recipes.list` | `blockId?` (only what that block can make) | `assemblerSpeed`, `assemblerEfficiency`, `refinerySpeed` (world multipliers), `recipes[]`: `id` (e.g. `BlueprintDefinition/SteelPlate`), `name`, `madeIn[]` (production block names), `inputs[]` / `outputs[]` (`type`, `subtype`, `amount`, in kg for ore and ingots), `seconds` (base time per run), `ignoresEfficiency`. Covers blueprints that some production block can make and whose outputs are real items. Left out: the build planner's per-block component kits, and gas tank / O2/H2 generator / irrigation "recipes" (refills with a placeholder output). Assemblers use `inputs / assemblerEfficiency` |
+| `production.queue` | `blockId`, `blueprint` (an `id` from `recipes.list`), `amount?`=1 (blueprint runs), `index?` (insert position; default the end) | `block`, `queued`, `amount`. `invalid_params` if the block can't make it |
+| `production.remove` | `blockId`, `index`, `amount?` (default the whole entry) | `block`, `removed`, `amount` |
+| `production.clear` | `blockId` | `block`, `cleared` |
+
+`production.get` queue entries also have `index` and `blueprintId`. Queue changes use the game's own requests (`AddQueueItemRequest` and the like), so they sync in multiplayer like the production screen.
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.
