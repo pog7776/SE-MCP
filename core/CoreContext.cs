@@ -15,6 +15,9 @@ namespace SEMcp.Core
         public bool ReadOnly { get; set; }
         public bool AllowPbCodePush { get; set; } = true;
         public bool AllowAutopilot { get; set; } = true;
+        // First point where a line enters an asteroid or planet surface, from the voxel data itself (physics raycasts
+        // miss voxels that have no physics generated, i.e. away from ships). Null = clear, or the host can't tell.
+        public Func<VRageMath.Vector3D, VRageMath.Vector3D, Tuple<string, VRageMath.Vector3D>> VoxelHit { get; set; } = (_, __) => null;
         // Pulling triggers is opt-in; aiming and target settings are not gated.
         public bool AllowWeapons { get; set; }
         // A weapon's loaded magazine subtype, and switching it (game internals: MyGunBase). Null/false when unavailable.

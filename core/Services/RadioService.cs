@@ -25,6 +25,69 @@ namespace SEMcp.Core.Services
             dispatcher.Register("radio.set", Set);
             dispatcher.Register("laser.connect", LaserConnect);
             dispatcher.Register("laser.idle", LaserIdle);
+            dispatcher.Register("los.check", LineOfSight);
+        }
+
+        // What a straight line between two points hits first (physics raycast), skipping `skip` meters at each end so
+        // the blocks at the ends (a laser antenna, a gun) don't count. For laser links and lines of fire.
+        private object LineOfSight(JsonObject p)
+        {
+            dispatcher.RequireSession();
+            var from = Point(p, "from") ?? throw new RpcException(ErrorKind.InvalidParams, "from is required");
+            var to = Point(p, "to") ?? throw new RpcException(ErrorKind.InvalidParams, "to is required");
+            double skip = p.Number("skip", 2.5);
+            var dir = Vector3D.Normalize(to - from);
+            double length = Vector3D.Distance(from, to);
+            var hits = new List<VRage.Game.ModAPI.IHitInfo>();
+            MyAPIGateway.Physics.CastRay(from + dir * skip, to - dir * skip, hits, (int)p.Number("layer", 30));
+            var hit = hits.FirstOrDefault();
+            // Rock first if it comes before any physics hit (asteroids away from ships have no physics to hit).
+            var rock = dispatcher.Context.VoxelHit(from + dir * skip, to - dir * skip);
+            if (rock != null && (hit == null || Vector3D.Distance(from, rock.Item2) < Vector3D.Distance(from, hit.Position)))
+                return new
+                {
+                    clear = false,
+                    distance = Math.Round(length, 1),
+                    hit = new
+                    {
+                        entity = rock.Item1,
+                        entityId = (string)null,
+                        block = (object)null,
+                        position = SensingService.Vec(rock.Item2, 1),
+                        fromStart = Math.Round(Vector3D.Distance(from, rock.Item2), 1),
+                        voxel = true,
+                    },
+                };
+            if (hit == null)
+                return new { clear = true, distance = Math.Round(length, 1) };
+            var entity = hit.HitEntity;
+            string what = entity?.DisplayName ?? entity?.GetType().Name;
+            object block = null;
+            if (entity is VRage.Game.ModAPI.IMyCubeGrid grid)
+            {
+                var cell = grid.WorldToGridInteger(hit.Position + dir * 0.05);
+                var slim = grid.GetCubeBlock(cell);
+                if (slim != null)
+                    block = new
+                    {
+                        name = (slim.FatBlock as IMyTerminalBlock)?.CustomName ?? slim.BlockDefinition.ToString(),
+                        type = Dto.ShortType(slim.BlockDefinition.Id.TypeId.ToString()),
+                    };
+                what = Dto.GridName(grid);
+            }
+            return new
+            {
+                clear = false,
+                distance = Math.Round(length, 1),
+                hit = new
+                {
+                    entity = what,
+                    entityId = entity != null ? Dto.Id(entity.EntityId) : null,
+                    block,
+                    position = SensingService.Vec(hit.Position, 1),
+                    fromStart = Math.Round(Vector3D.Distance(from, hit.Position), 1),
+                },
+            };
         }
 
         private void Log(string message) => dispatcher.Context.Log(message);
@@ -52,6 +115,9 @@ namespace SEMcp.Core.Services
                         ["gridName"] = Dto.GridName(b.CubeGrid),
                         ["enabled"] = (b as IMyFunctionalBlock)?.Enabled,
                         ["working"] = b.IsWorking,
+                        // Laser antennas only link to ones their owner may use.
+                        ["ownerId"] = Dto.Id(b.OwnerId),
+                        ["owner"] = Dto.Relation(b.GetUserRelationToOwner(access.IdentityId)),
                         ["position"] = SensingService.Vec(b.GetPosition(), 1),
                         // How the block is mounted: a laser antenna's head swivels around its base's up.
                         ["forward"] = SensingService.Vec(b.WorldMatrix.Forward, 3),

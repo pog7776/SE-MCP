@@ -361,6 +361,27 @@ namespace SEMcp.Host
             return gun != null && gun.HasAmmoMagazines ? gun.CurrentAmmoMagazineId.SubtypeName : null;
         }
 
+        public static Tuple<string, Vector3D> VoxelHit(Vector3D from, Vector3D to)
+        {
+            var line = new LineD(from, to);
+            Tuple<string, Vector3D> best = null;
+            double bestDistance = double.MaxValue;
+            foreach (var entity in MyEntities.GetEntities())
+            {
+                if (!(entity is MyVoxelBase voxel) || !voxel.PositionComp.WorldAABB.Intersects(ref line))
+                    continue;
+                if (!voxel.GetIntersectionWithLine(ref line, out var result, VRage.Game.Components.IntersectionFlags.ALL_TRIANGLES) || !result.HasValue)
+                    continue;
+                double d = Vector3D.Distance(from, result.Value.IntersectionPointInWorldSpace);
+                if (d < bestDistance)
+                {
+                    bestDistance = d;
+                    best = Tuple.Create(voxel is MyPlanet planet ? PlanetName(planet) : voxel.StorageName ?? "asteroid", result.Value.IntersectionPointInWorldSpace);
+                }
+            }
+            return best;
+        }
+
         public static int? LoadedRounds(Sandbox.ModAPI.IMyTerminalBlock block) => GunBase(block)?.CurrentAmmo;
 
         // The weapon's own switch. Runs where the weapon is simulated, so it only takes effect on the server (single player is fine).

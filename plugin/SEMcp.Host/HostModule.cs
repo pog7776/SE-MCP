@@ -42,6 +42,7 @@ namespace SEMcp.Host
                 AllowWeapons = config.AllowWeapons,
                 CurrentMagazine = HostMethods.CurrentMagazine,
                 LoadedRounds = HostMethods.LoadedRounds,
+                VoxelHit = HostMethods.VoxelHit,
                 SwitchMagazine = HostMethods.SwitchMagazine,
                 PbCompilerErrors = HostMethods.PbCompilerErrors,
                 CanConvey = HostMethods.CanConvey,
