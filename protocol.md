@@ -163,7 +163,16 @@ The `rc.*` methods take `blockId` (a Remote Control) and return its state:
 | Method | Params | Returns |
 |---|---|---|
 | `inventory.layout` | `gridId` | `gridName`, `shipId`, and `inventories[]` for every usable inventory on the construct, docked ships included. Each has: `blockId`, `name`, `type`, `subtype`, `gridName`, `shipId`/`shipName`, `customData` (only when it contains `[`), `index`, `role` (`input`/`output` for production blocks), `working`, `conveyorGroup`, `volumeL`, `maxVolumeL`, `items[]`. `shipId` is the mechanical group (grids joined by rotors and pistons, not by connectors), named after its biggest grid. Inventories with the same `conveyorGroup` are joined by conveyors |
-| `inventory.transfer` | `fromBlockId` + `fromIndex?`=0, or `fromCharacter: true`; `toBlockId` + `toIndex?`=0, or `toCharacter: true`; `type` (short, e.g. `Ingot`); `subtype`; `amount?` (default all) | `item`, `from`, `to`, `requested`, `moved`, `leftInSource`, `reason` (why some or all didn't move: not connected, conveyor too small, not accepted, destination full, none there). Block-to-block moves go through conveyors (`TransferItemTo` with connection checks). Moves to or from the suit need the player within 6 m of the block, or seated on that ship. Server-side only: `feature_disabled` on a multiplayer client |
+| `inventory.transfer` | `fromBlockId` + `fromIndex?`=0, or `fromCharacter: true`; `toBlockId` + `toIndex?`=0, or `toCharacter: true`; `type` (short, e.g. `Ingot`); `subtype`; `amount?` (default all) | `item`, `from`, `to`, `route`, `requested`, `moved`, `pending`, `leftInSource`, `reason` (why some or all didn't move: no conveyor path, conveyor too small for the item, not accepted, destination full, none there). `out_of_range` when the suit can't reach. See the rules below |
+
+`inventory.transfer` follows the inventory screen's rules (`MyTerminalInventoryController.CanTransferItem`):
+- **Block to block:** the item must travel along conveyors big enough for it. The host checks with the game's own pathfinding (`MyGridConveyorSystem.ComputeCanTransfer` with the item id), which also works for access points without an inventory.
+- **Suit to or from a block:** through an access point.
+  - If seated, the access point is your seat. If the seat isn't on the conveyors, only its own inventory is reachable.
+  - On foot, it's the target itself if it's within 5 m (`MyConstants.DEFAULT_INTERACTIVE_DISTANCE`). Otherwise it's the nearest block within 5 m that can convey the item to the target.
+  - `route` says which one was used.
+- **How the move is sent:** through `MyInventory.TransferByUser`, the same validated request the screen sends. So it works in single player, when hosting, and as a multiplayer client.
+- **As a multiplayer client:** the server carries it out a moment later. The reply then has `pending: true`, and `moved` is the amount requested for the first stack.
 
 ## Host-only methods
 

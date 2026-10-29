@@ -40,6 +40,8 @@ namespace SEMcp.Host
                 AllowPbCodePush = config.AllowPbCodePush,
                 AllowAutopilot = config.AllowAutopilot,
                 PbCompilerErrors = HostMethods.PbCompilerErrors,
+                CanConvey = HostMethods.CanConvey,
+                TransferByUser = HostMethods.TransferByUser,
                 Log = message => context.Log(message),
             });
 

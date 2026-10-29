@@ -4,7 +4,12 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using Sandbox.Definitions;
+using Sandbox.Game;
 using Sandbox.Game.Entities.Blocks;
+using Sandbox.Game.GameSystems;
+using Sandbox.Game.GameSystems.Conveyors;
+using VRage.Game;
+using VRage.Game.Entity;
 using Sandbox.Game.World;
 using Sandbox.ModAPI;
 using SEMcp.Core;
@@ -29,6 +34,28 @@ namespace SEMcp.Host
         // MyProgrammableBlock.m_compilerErrors: filled by each compile (server side), shown only in the code editor.
         public static IList<string> PbCompilerErrors(Sandbox.ModAPI.IMyProgrammableBlock pb) =>
             CompilerErrorsField?.GetValue(pb) is List<string> errors ? errors.ToList() : null;
+
+        private static IMyConveyorEndpointBlock Endpoint(VRage.ModAPI.IMyEntity entity)
+        {
+            if (entity is IMyConveyorEndpointBlock endpoint)
+                return endpoint;
+            return entity is MyEntity e && e.Components.TryGet<IMyConveyorEndpointBlock>(out var component) ? component : null;
+        }
+
+        // The inventory screen's rule: an item can go from A to B if the conveyor network connects them with
+        // conveyors big enough for that item.
+        public static bool? CanConvey(VRage.ModAPI.IMyEntity from, VRage.ModAPI.IMyEntity to, VRage.Game.ModAPI.Ingame.MyItemType item)
+        {
+            var start = Endpoint(from);
+            var end = Endpoint(to);
+            if (start == null || end == null)
+                return false;
+            return MyGridConveyorSystem.ComputeCanTransfer(start, end, (MyDefinitionId)item);
+        }
+
+        // Same call the inventory screen makes when the player drags an item (a validated request to the server).
+        public static void TransferByUser(VRage.Game.ModAPI.IMyInventory src, VRage.Game.ModAPI.IMyInventory dst, uint itemId, VRage.MyFixedPoint amount) =>
+            MyInventory.TransferByUser((MyInventory)src, (MyInventory)dst, itemId, -1, amount);
 
         private static object Vec(Vector3D v) => new[] { Math.Round(v.X, 5), Math.Round(v.Y, 5), Math.Round(v.Z, 5) };
 

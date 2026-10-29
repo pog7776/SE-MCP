@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Sandbox.ModAPI;
 using VRage.Game.ModAPI;
 using VRage.ModAPI;
+using VRageMath;
 using IngameInventoryItem = VRage.Game.ModAPI.Ingame.MyInventoryItem;
 
 namespace SEMcp.Core.Services
@@ -27,8 +28,9 @@ namespace SEMcp.Core.Services
             dispatcher.Register("inventory.transfer", Transfer);
         }
 
-        // Within this distance of a block, the player can reach its inventory from the suit, like opening it by hand.
-        private const double SuitReachMeters = 6;
+        // The game's interaction distance (MyConstants.DEFAULT_INTERACTIVE_DISTANCE): how close the player must be
+        // to a block to open its inventory by hand.
+        private const double ReachMeters = 5;
 
         // Every inventory on a ship, with what's needed to plan moves: block kind, tags text, fill, items, and which
         // inventories are joined by conveyors (same conveyorGroup = items can travel between them, size permitting).
@@ -103,27 +105,66 @@ namespace SEMcp.Core.Services
             return (block.GetInventory(index), block.CustomName, false, block);
         }
 
-        // The suit can reach a block's inventory when the player stands next to it, or sits on the same ship.
-        private void RequireSuitReach(IMyTerminalBlock block)
+        // Conveyor check between two blocks for one item: the host's pathfinding (same as the inventory screen), or
+        // the ModAPI equivalent when both have inventories.
+        private bool CanConvey(IMyEntity from, IMyEntity to, VRage.Game.ModAPI.Ingame.MyItemType item)
         {
-            var player = access.Player;
-            var controlled = player.Controller?.ControlledEntity?.Entity as IMyCubeBlock;
-            if (controlled != null && Access.Construct(controlled.CubeGrid).Contains(block.CubeGrid))
-                return;
-            var character = player.Character;
-            double distance = character == null ? double.MaxValue : block.WorldAABB.Distance(character.GetPosition());
-            if (distance > SuitReachMeters)
-                throw new RpcException(ErrorKind.OutOfRange,
-                    $"Your suit can't reach '{block.CustomName}' ({distance:F0} m away). Stand next to it, or sit in a seat on that ship.");
+            var answer = dispatcher.Context.CanConvey(from, to, item);
+            if (answer.HasValue)
+                return answer.Value;
+            return from.HasInventory && to.HasInventory && from.GetInventory(0).CanTransferItemTo(to.GetInventory(0), item);
         }
 
-        // Moves one item type between two inventories, like dragging it in the terminal. Block to block goes
-        // through conveyors; the suit needs to be in reach. Reports what actually moved and why the rest didn't.
+        // How the suit reaches a block, like the inventory screen: through an access point (the seat the player is
+        // in, or a block within arm's reach), then along conveyors big enough for the item. Returns a description of
+        // the route, or throws with what's in the way.
+        private string SuitRoute(IMyTerminalBlock target, VRage.Game.ModAPI.Ingame.MyItemType item)
+        {
+            var player = access.Player;
+            if (player.Controller?.ControlledEntity?.Entity is IMyCubeBlock seat)
+            {
+                if (seat == target)
+                    return $"from your seat";
+                if (CanConvey(seat, target, item))
+                    return $"through conveyors from {((IMyTerminalBlock)seat).CustomName}";
+                throw new RpcException(ErrorKind.OutOfRange,
+                    $"From {((IMyTerminalBlock)seat).CustomName} there's no conveyor path to '{target.CustomName}' for {item.SubtypeId} " +
+                    "(not connected, or the conveyors are too small for it). Get out and walk to it, or use a seat on that network.");
+            }
+
+            var character = player.Character
+                ?? throw new RpcException(ErrorKind.NotFound, "The player has no character (dead or spectating?)");
+            Vector3D position = character.GetPosition();
+            if (target.WorldAABB.Distance(position) <= ReachMeters)
+                return "by hand";
+
+            // Any block within reach on that ship can be the access point, if the item can travel from it.
+            // Nearest first, so the route names the block the player would actually use.
+            var accessPoint = Access.Construct(target.CubeGrid)
+                .SelectMany(g => g.GetFatBlocks<IMyTerminalBlock>())
+                .Select(b => (block: b, distance: b.WorldAABB.Distance(position)))
+                .Where(x => x.distance <= ReachMeters && access.CanUse(x.block))
+                .OrderBy(x => x.distance)
+                .FirstOrDefault(x => CanConvey(x.block, target, item));
+            if (accessPoint.block != null)
+                return $"through conveyors from {accessPoint.block.CustomName} next to you";
+            double distance = target.WorldAABB.Distance(position);
+            throw new RpcException(ErrorKind.OutOfRange,
+                $"You can't reach '{target.CustomName}' from where you are ({distance:F0} m away, and nothing within arm's reach " +
+                $"connects to it by conveyors for {item.SubtypeId}). Walk to it or to a conveyor block on its network, or sit in a seat on that network.");
+        }
+
+        // Moves one item type between two inventories with the inventory screen's rules: block to block along
+        // conveyors big enough for the item; the suit through an access point (see SuitRoute). The move itself is
+        // the screen's player request when the host provides it, so it works as a multiplayer client too.
+        // Reports what actually moved and why the rest didn't.
         private object Transfer(JsonObject p)
         {
             dispatcher.RequireWritable();
-            if (MyAPIGateway.Multiplayer != null && !MyAPIGateway.Multiplayer.IsServer)
-                throw new RpcException(ErrorKind.FeatureDisabled, "Moving items isn't supported on a multiplayer client yet (only single player or when hosting)");
+            bool isServer = MyAPIGateway.Multiplayer == null || MyAPIGateway.Multiplayer.IsServer;
+            var byUser = dispatcher.Context.TransferByUser;
+            if (!isServer && byUser == null)
+                throw new RpcException(ErrorKind.FeatureDisabled, "Moving items as a multiplayer client needs the host's transfer hook");
 
             var from = Endpoint(p, "from");
             var to = Endpoint(p, "to");
@@ -131,10 +172,6 @@ namespace SEMcp.Core.Services
                 throw new RpcException(ErrorKind.InvalidParams, "Source and destination are the same inventory");
             if (from.isSuit && to.isSuit)
                 throw new RpcException(ErrorKind.InvalidParams, "Both ends are your suit");
-            if (from.isSuit) RequireSuitReach(to.block);
-            if (to.isSuit) RequireSuitReach(from.block);
-            bool viaConveyors = !from.isSuit && !to.isSuit;
-
             string typeName = p.String("type", required: true);
             string subtype = p.String("subtype", required: true);
             var itemType = new VRage.Game.ModAPI.Ingame.MyItemType("MyObjectBuilder_" + typeName, subtype);
@@ -142,15 +179,24 @@ namespace SEMcp.Core.Services
             double requested = p["amount"] == null ? available : Math.Min(p.Number("amount", 0), available);
             string label = $"{subtype} {typeName}";
 
-            string reason = null;
-            double moved = 0;
+            string reason = null, route = null;
             if (available <= 0)
                 reason = $"There is no {label} in {from.name}";
-            else if (viaConveyors && !from.inventory.IsConnectedTo(to.inventory))
-                reason = $"{from.name} and {to.name} aren't connected by conveyors";
-            else if (viaConveyors && !from.inventory.CanTransferItemTo(to.inventory, itemType))
-                reason = $"{label} can't travel from {from.name} to {to.name} (it doesn't accept it, or a small conveyor is in the way)";
+            else if (from.isSuit)
+                route = SuitRoute(to.block, itemType);
+            else if (to.isSuit)
+                route = SuitRoute(from.block, itemType);
+            else if (!CanConvey(from.block, to.block, itemType))
+                reason = $"{label} can't travel from {from.name} to {to.name} by conveyor (not connected, or a conveyor on the way is too small for it)";
             else
+                route = "through conveyors";
+
+            if (reason == null && !to.inventory.CanItemsBeAdded((VRage.MyFixedPoint)Math.Min(requested, 1), itemType))
+                reason = $"{to.name} is full or doesn't accept {label}";
+
+            double moved = 0;
+            bool pending = false;
+            if (reason == null)
             {
                 var items = new List<IngameInventoryItem>();
                 // Item stacks can be split; keep moving the first matching stack until done or nothing moves.
@@ -163,13 +209,21 @@ namespace SEMcp.Core.Services
                         break;
                     double before = (double)from.inventory.GetItemAmount(itemType);
                     var chunk = (VRage.MyFixedPoint)Math.Min((double)items[stack].Amount, requested - moved);
-                    ((IMyInventory)from.inventory).TransferItemTo(to.inventory, stack, null, true, chunk, viaConveyors);
+                    if (byUser != null)
+                        byUser((IMyInventory)from.inventory, (IMyInventory)to.inventory, items[stack].ItemId, chunk);
+                    else
+                        ((IMyInventory)from.inventory).TransferItemTo(to.inventory, stack, null, true, chunk, false);
+                    if (!isServer)
+                    {
+                        // The server carries it out a moment later; one request per call is enough to report.
+                        pending = true;
+                        moved = (double)chunk;
+                        break;
+                    }
                     double step = before - (double)from.inventory.GetItemAmount(itemType);
                     if (step <= 1e-6)
                     {
-                        reason = to.inventory.IsFull || !to.inventory.CanItemsBeAdded(1, itemType)
-                            ? $"{to.name} is full or doesn't accept {label}"
-                            : $"The game refused to move more {label}";
+                        reason = $"{to.name} is full or the game refused to move more {label}";
                         break;
                     }
                     moved += step;
@@ -177,14 +231,17 @@ namespace SEMcp.Core.Services
             }
 
             if (moved > 0)
-                dispatcher.Context.Log($"moved {moved:0.##} {label}: {from.name} -> {to.name}");
+                dispatcher.Context.Log($"moved {moved:0.##} {label}: {from.name} -> {to.name} ({route})");
             return new
             {
                 item = new { type = typeName, subtype },
                 from = from.name,
                 to = to.name,
+                route,
                 requested = Math.Round(requested, 2),
                 moved = Math.Round(moved, 2),
+                // Multiplayer client: the request was sent, and the server's result shows up a moment later.
+                pending,
                 leftInSource = Math.Round((double)from.inventory.GetItemAmount(itemType), 2),
                 reason,
             };

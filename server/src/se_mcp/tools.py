@@ -240,7 +240,10 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         r = await bridge.call("inventory.transfer", params)
         name = items_mod.display(t, s)
         moved = items_mod.amount_text(r["moved"], t)
-        text = f"Moved {moved} {name}: {r['from']} -> {r['to']}."
+        route = f" ({r['route']})" if r.get("route") else ""
+        text = f"Moved {moved} {name}: {r['from']} -> {r['to']}{route}."
+        if r.get("pending"):
+            return f"Asked the server to move {moved} {name}: {r['from']} -> {r['to']}{route}. It shows up in a moment."
         if r["reason"]:
             text = (f"Moved {moved} of {items_mod.amount_text(r['requested'], t)} {name}. " if r["moved"] else "Nothing moved. ") + r["reason"] + "."
         return text + f" {items_mod.amount_text(r['leftInSource'], t)} left in {r['from']}."

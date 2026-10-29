@@ -89,7 +89,7 @@ def handlers(moved: list[dict]) -> dict[str, Any]:
     def transfer(p: dict) -> dict:
         moved.append(p)
         return {"item": {"type": p["type"], "subtype": p["subtype"]}, "from": "Assembler", "to": "Main Cargo",
-                "requested": 40, "moved": 40, "leftInSource": 0, "reason": None}
+                "route": "through conveyors", "requested": 40, "moved": 40, "leftInSource": 0, "reason": None}
 
     h.update({
         "blocks.list": blocks, "inventory.transfer": transfer,
@@ -117,7 +117,7 @@ async def test_move_items_takes_from_the_output_inventory():
     text = await call("move_items", {"item": "steel plates", "from_block": "assembler", "to_block": "cargo"}, moved)
     assert moved == [{"type": "Component", "subtype": "SteelPlate", "fromBlockId": "7000001", "fromIndex": 1,
                       "toBlockId": "7000002", "toIndex": 0}]
-    assert text.startswith("Moved 40 Steel Plate: Assembler -> Main Cargo.")
+    assert text.startswith("Moved 40 Steel Plate: Assembler -> Main Cargo (through conveyors).")
 
 
 async def test_organize_needs_apply_to_move():
