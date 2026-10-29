@@ -9,6 +9,8 @@
     <ProjectReference Include="..\..\core\SEMcp.Core.csproj" />
     <!-- Contracts only; the loader is already in the game when the host runs. -->
     <ProjectReference Include="..\SEMcp.Loader\SEMcp.Loader.csproj" Private="false" />
+    <!-- Toolbar item object builders. -->
+    <Reference Include="SpaceEngineers.ObjectBuilders" HintPath="$(SEBin)\SpaceEngineers.ObjectBuilders.dll" Private="false" />
   </ItemGroup>
 
   <!-- Offscreen camera rendering (host-only): renderer types, and Harmony as loaded by Pulsar. -->

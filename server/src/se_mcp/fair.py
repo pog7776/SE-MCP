@@ -112,3 +112,9 @@ TOOLS.update({
     "set_radio": Fairness("own", "construct"),
     "laser_link": Fairness("own", "construct", "aims both ends when the other laser is on our own grid (its terminal, via the network)"),
 })
+
+TOOLS.update({
+    "toolbar": Fairness("own", None),
+    "set_toolbar_slot": Fairness("own", "construct", "the player's own toolbar is 'suit'"),
+    "edit_group": Fairness("own", "construct"),
+})

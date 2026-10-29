@@ -236,6 +236,16 @@ Weapons are `IMyUserControllableGun` blocks (turrets and fixed guns) and custom 
 | `los.check` | `from`, `to` (`[x,y,z]`), `skip?`=2.5 (meters ignored at each end), `layer?`=30 | `clear`, `distance`, `hit?` (`entity`, `entityId`, `block` (`name`, `type`), `position`, `fromStart`, `voxel` when it's rock). Physics raycast plus a voxel-shape test (host hook), since asteroids away from ships have no physics |
 | `laser.idle` | `blockId` | `block`, `status`. The `Idle` terminal action (drops the link) |
 
+## Toolbar and group methods (host)
+
+Game internals (ModAPI can read groups but not edit them, and can't see toolbars). Changes use the calls the game's own screens make, which sync in multiplayer.
+
+| Method | Params | Returns |
+|---|---|---|
+| `toolbar.get` | `blockId?` (any block with a toolbar: cockpits, seats, remote controls, button panels, timers, sensors, event controllers...); none = the player's own | `owner` (`player` or the block name), `type` (`Ship`/`Character`/`ButtonPanel`/...), `pages`, `currentPage`, `slots[]` (non-empty only): `index`, `page`, `slot` (1-9), `text`, `kind` (`block`/`group`/`weapon`/`cubeblock`/...), `target`, `blockId`, `action`, `actionName` |
+| `toolbar.set` | `blockId?`; `page`+`slot` or `index`; then `clear`, or `definitionId` (`Type/Subtype`, e.g. a block to build), or `action` + `targetBlockId` or `group` + `gridId` | `owner`, `before`, `after` (slots as in `toolbar.get`). `invalid_params` lists the valid action ids; block/group actions are refused on Character toolbars |
+| `group.set` | `gridId`, `name`, `blockIds[]`, `mode?` (`replace`/`add`/`remove`/`delete`), `newName?` | `name`, `created`, `deleted`, `before` (count), `blocks[]`. `MyCubeGrid.ModifyGroup`, like the terminal; an emptied group is deleted |
+
 ## Host-only methods
 
 These use game internals beyond ModAPI, so they live in `plugin/SEMcp.Host` rather than Core.

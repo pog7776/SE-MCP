@@ -51,6 +51,7 @@ namespace SEMcp.Host
             });
 
             HostMethods.Register(dispatcher);
+            ToolbarMethods.Register(dispatcher);
             StartCapture();
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);

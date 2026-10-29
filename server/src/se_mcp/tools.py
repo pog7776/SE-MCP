@@ -19,6 +19,7 @@ from . import items as items_mod
 from . import organizer
 from . import production as production_mod
 from . import radio
+from . import toolbar as toolbar_mod
 from . import pb
 from . import resolve
 from . import vision
@@ -146,6 +147,65 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         if not groups:
             return f"No block groups on {target.get('name') or target['id']}."
         return "\n".join(f"- {g['name']}: " + ", ".join(b["name"] for b in g["blocks"]) for g in groups)
+
+    @tool
+    async def edit_group(name: str, blocks: str | None = None, mode: str = "replace", new_name: str | None = None,
+                         grid: str | None = None) -> str:
+        """Create, change, rename or delete a block group, as in the terminal. blocks: comma-separated block
+        names. mode: "replace" (the group becomes exactly these; creates it if new), "add", "remove", "delete".
+        new_name renames it (toolbar slots that used the old name stop working, like in the game)."""
+        target = await resolve.grid(bridge, grid)
+        ids: list[str] = []
+        for b in [x.strip() for x in (blocks or "").split(",") if x.strip()]:
+            ids.append((await resolve.block(bridge, b, grid))["id"])
+        params: dict[str, Any] = {"gridId": target["id"], "name": name, "mode": mode, "blockIds": ids}
+        if new_name:
+            params["newName"] = new_name
+        return toolbar_mod.group_text(await bridge.call("group.set", params))
+
+    async def _toolbar_owner(block: str | None, grid: str | None) -> dict[str, Any]:
+        if not block or block.strip().lower() in ("me", "player", "my", "mine"):
+            return {}
+        return {"blockId": (await resolve.block(bridge, block, grid))["id"]}
+
+    @tool
+    async def toolbar(block: str | None = None, page: int | None = None, grid: str | None = None) -> str:
+        """Show a toolbar: a cockpit/seat/remote control, button panel, timer, sensor or event controller (block),
+        or the player's own (block empty or "me"). Slots are page.slot, e.g. 1.4 is page 1, key 4."""
+        return toolbar_mod.toolbar_text(await bridge.call("toolbar.get", await _toolbar_owner(block, grid)), page)
+
+    @tool
+    async def set_toolbar_slot(page: int, slot: int, block: str | None = None, target_block: str | None = None,
+                               target_group: str | None = None, action: str | None = None, item: str | None = None,
+                               clear: bool = False, grid: str | None = None) -> str:
+        """Put something in one toolbar slot (page 1-9, slot 1-9) of a block's toolbar (block) or the player's
+        (block empty or "me"). Either target_block or target_group plus an action id (e.g. "OnOff", "OnOff_On",
+        "Trigger", "Run", "ShootOnce"; a wrong id lists the valid ones), or item: a block to build or a definition
+        id like "CubeBlock/LargeBlockArmorBlock" (player toolbar). clear=True empties the slot."""
+        params: dict[str, Any] = {**await _toolbar_owner(block, grid), "page": page, "slot": slot}
+        if clear:
+            params["clear"] = True
+        elif item:
+            if "/" in item:
+                params["definitionId"] = item
+            else:
+                found = (await bridge.call("blockdefs.find", {"query": item, "limit": 5}))["blocks"]
+                if not found:
+                    return f"No block called '{item}'."
+                large = [f for f in found if f["size"] == "large"]
+                params["definitionId"] = (large or found)[0]["id"]
+        elif target_block or target_group:
+            if not action:
+                return "Give the action id to run (e.g. OnOff, Trigger, Run)."
+            params["action"] = action
+            if target_block:
+                params["targetBlockId"] = (await resolve.block(bridge, target_block, grid))["id"]
+            else:
+                params["group"] = target_group
+                params["gridId"] = (await resolve.grid(bridge, grid))["id"]
+        else:
+            return "Give target_block or target_group with an action, an item, or clear=True."
+        return toolbar_mod.change_text(await bridge.call("toolbar.set", params))
 
     @tool
     async def inventory(grid: str | None = None, block: str | None = None, suit: bool = False, item: str | None = None) -> str:
