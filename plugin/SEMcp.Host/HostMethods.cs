@@ -36,6 +36,45 @@ namespace SEMcp.Host
             dispatcher.Register("environment.bodies", p => Bodies(access, dispatcher, p));
             dispatcher.Register("radio.signals", p => Signals(access, dispatcher, p));
             dispatcher.Register("ore.markers", p => OreMarkers(access, dispatcher, p));
+            dispatcher.Register("target.lock", p => TargetLock(access, dispatcher, p));
+        }
+
+        // The ship's weapon target lock (the cockpit's "lock on" for guns and missiles), read-only: it belongs to
+        // the pilot, so it only exists while someone flies the ship. Setting it from here didn't work reliably
+        // (MyShipController.SetLockedTarget is ignored; the component's own calls locked the wrong thing).
+        private static object TargetLock(Access access, Dispatcher dispatcher, JsonObject p)
+        {
+            dispatcher.RequireSession();
+            var grid = (MyCubeGrid)access.Grid(p.Id("gridId"));
+            var controllers = Access.Construct(grid).SelectMany(g => g.GetFatBlocks<IMyShipController>()).OfType<MyShipController>().ToList();
+            var controller = controllers.FirstOrDefault(c => c.IsTargetLockingEnabled() && ((IMyShipController)c).IsUnderControl)
+                ?? controllers.FirstOrDefault(c => c.IsTargetLockingEnabled() && ((IMyShipController)c).IsMainCockpit)
+                ?? controllers.FirstOrDefault(c => c.IsTargetLockingEnabled());
+            // The lock belongs to whoever flies the ship: the component sits on the grid, the controller, or the
+            // pilot's character depending on version, and MyCubeGrid.GetTargetEntity() reads the local pilot's lock.
+            var pilotedHere = MySession.Static.ControlledEntity is MyShipController seat
+                && ((IMyCubeGrid)seat.CubeGrid).IsInSameLogicalGroupAs(grid);
+            var locking = grid.Components.Get<Sandbox.Game.EntityComponents.MyTargetLockingComponent>()
+                ?? controllers.Select(c => c.Components.Get<Sandbox.Game.EntityComponents.MyTargetLockingComponent>()).FirstOrDefault(c => c != null)
+                ?? (pilotedHere ? MySession.Static.LocalCharacter?.Components.Get<Sandbox.Game.EntityComponents.MyTargetLockingComponent>() : null);
+            var entity = locking?.TargetEntity ?? (pilotedHere ? MyCubeGrid.GetTargetEntity() : null);
+            return new
+            {
+                ship = grid.DisplayName,
+                controller = controller?.DisplayNameText,
+                lockingEnabled = controller != null,
+                target = entity == null ? null : new
+                {
+                    id = entity.EntityId.ToString(),
+                    name = entity.DisplayName,
+                    distance = Math.Round(Vector3D.Distance(grid.PositionComp.GetPosition(), entity.PositionComp.GetPosition()), 0),
+                },
+                locked = locking?.IsTargetLocked ?? false,
+                progressPercent = locking == null ? (double?)null : Math.Round(locking.LockingProgressPercent, 0),
+                losingLock = locking?.IsLosingLock ?? false,
+                // Where the locking component lives (the pilot's character, in this version).
+                component = locking == null ? null : (locking.Entity == grid ? "grid" : locking.Entity is MyShipController ? "controller" : locking.Entity?.GetType().Name),
+            };
         }
 
         private static readonly MethodInfo ComputeWorldPosition = typeof(Sandbox.Game.Entities.Cube.MyEntityOreDeposit.Data)

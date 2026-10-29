@@ -1108,8 +1108,11 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
     async def weapons(grid: str | None = None) -> str:
         """Turrets, fixed guns and custom turret controllers on a ship: what each is targeting, its target
         settings and range, the loaded magazine, and the ammo carried on board."""
-        _, r = await _weapons(grid)
-        return combat.weapons_text(r)
+        target, r = await _weapons(grid)
+        text = combat.weapons_text(r)
+        lock = await bridge.call("target.lock", {"gridId": target["id"]})
+        return text + "\n" + combat.lock_text(lock)
+
 
     @tool
     async def set_turrets(turrets: str = "all", enemies: bool | None = None, neutrals: bool | None = None,

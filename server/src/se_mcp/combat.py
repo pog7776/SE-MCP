@@ -167,3 +167,16 @@ def contacts_text(ship: str, heard: dict[str, Any], w: dict[str, Any], sensed: d
         body = f" {c['body']}," if c.get("body") else ""
         lines.append(f"- {c['name']} ({c['relation']}):{body} {c['distance']:,.0f} m{speed}; via {'; '.join(c['sources'])}")
     return "\n".join(lines)
+
+
+def lock_text(r: dict[str, Any]) -> str:
+    """The cockpit's weapon target lock."""
+    if not r.get("lockingEnabled"):
+        return "Target lock: no cockpit with target locking on this ship."
+    t = r.get("target")
+    if not t:
+        return f"Target lock: none (locks need a pilot in {r.get('controller') or 'a seat'})."
+    state = "LOCKED" if r["locked"] else (f"locking {r['progressPercent']:.0f}%" if r.get("progressPercent") is not None else "locking")
+    if r.get("losingLock"):
+        state += ", losing lock"
+    return f"Target lock: {t['name']} at {t['distance']:,.0f} m ({state})"
