@@ -35,6 +35,13 @@ namespace SEMcp.Core.Services
 
         private void Log(string message) => dispatcher.Context.Log(message);
 
+        // Shooting through generic actions/properties obeys the same switch as weapon.fire.
+        private void RequireWeapons(IMyTerminalBlock block, string id)
+        {
+            if (block is IMyUserControllableGun && id.StartsWith("Shoot", StringComparison.OrdinalIgnoreCase) && !dispatcher.Context.AllowWeapons)
+                throw new RpcException(ErrorKind.FeatureDisabled, "Firing weapons is turned off (allowWeapons in config.json)");
+        }
+
         // One block (blockId) or every usable block in a group (gridId + group).
         private List<IMyTerminalBlock> Targets(JsonObject p, out List<string> skipped)
         {
@@ -72,6 +79,7 @@ namespace SEMcp.Core.Services
             var applied = new List<string>();
             foreach (var block in targets)
             {
+                RequireWeapons(block, actionId);
                 var action = block.GetActionWithName(actionId);
                 if (action == null)
                 {
@@ -110,6 +118,7 @@ namespace SEMcp.Core.Services
             var changed = new List<object>();
             foreach (var block in targets)
             {
+                RequireWeapons(block, propertyId);
                 var property = block.GetProperty(propertyId);
                 if (property == null)
                 {

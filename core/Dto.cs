@@ -76,10 +76,16 @@ namespace SEMcp.Core
             return missing;
         }
 
-        public static List<object> Items(IMyInventory inventory)
+        public static List<IngameInventoryItem> ItemList(IMyInventory inventory)
         {
             var items = new List<IngameInventoryItem>();
             inventory.GetItems(items);
+            return items;
+        }
+
+        public static List<object> Items(IMyInventory inventory)
+        {
+            var items = ItemList(inventory);
             return items.Select(item => (object)new
             {
                 type = ShortType(item.Type.TypeId),

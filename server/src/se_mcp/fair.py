@@ -94,3 +94,13 @@ TOOLS.update({
     "environment": Fairness("sensed", None, "local gravity/air/weather are what the suit and cockpit sense; listing every planet and asteroid is omniscient"),
     "forecast": Fairness("own", None),
 })
+
+TOOLS.update({
+    "weapons": Fairness("own", None, "a turret's current target is sensed by the turret itself"),
+    "set_turrets": Fairness("own", "construct"),
+    "aim_turrets": Fairness("own", "construct"),
+    "fire_weapons": Fairness("own", "construct", "also gated by allowWeapons in the plugin config"),
+    "load_magazine": Fairness("own", "construct"),
+    "track_target": Fairness("sensed", "construct", "camera raycasts only; GPS/coords start points must come from a fair source"),
+    "damage_report": Fairness("own", None),
+})

@@ -15,6 +15,11 @@ namespace SEMcp.Core
         public bool ReadOnly { get; set; }
         public bool AllowPbCodePush { get; set; } = true;
         public bool AllowAutopilot { get; set; } = true;
+        // Pulling triggers is opt-in; aiming and target settings are not gated.
+        public bool AllowWeapons { get; set; }
+        // A weapon's loaded magazine subtype, and switching it (game internals: MyGunBase). Null/false when unavailable.
+        public Func<Sandbox.ModAPI.IMyTerminalBlock, string> CurrentMagazine { get; set; } = _ => null;
+        public Func<Sandbox.ModAPI.IMyTerminalBlock, VRage.Game.MyDefinitionId, bool> SwitchMagazine { get; set; } = (_, __) => false;
         // Compiler messages of a programmable block. The game keeps them private (only its editor shows them), so the host supplies them.
         public Func<Sandbox.ModAPI.IMyProgrammableBlock, System.Collections.Generic.IList<string>> PbCompilerErrors { get; set; } = _ => null;
         // Conveyor pathfinding between two blocks for one item type (size-aware), as the inventory screen does it.

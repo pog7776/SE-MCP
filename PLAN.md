@@ -275,7 +275,7 @@ Remaining items, reordered by value for effort, quick wins first and docking las
 7. ✅ **Safety net** (`save_world`: a normal save, with the game's own Backup folder as the restore point): save the world before risky operations, such as long autopilot runs or docking.
 8. ✅ **Environment** (`environment`: gravity, nearest planet, altitude, air, sun height, weather, nearby bodies; verified live in deep space, planet output tested with fakes): nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
 9. ✅ **Forecasts** (`forecast`: batteries from in/out power, uranium at 1 kg/MWh, gas and suit from two samples; verified live): battery, hydrogen, oxygen and uranium time-to-empty or full, from two samples or a short history.
-10. **Combat**: what turrets are targeting and their ammo; select or change targets.
+10. ✅ **Combat**: what turrets are targeting and their ammo; change target settings, aim turrets (leading moving targets), fire (opt-in `allowWeapons`), switch magazines (interior turrets, flare launchers); lidar-style camera tracking that can steer turrets; damage report. Later: AI Offensive/Defensive combat blocks (with flight paths and maneuvers).
 11. **Ore detectors**: what the ship's ore detectors currently see (the HUD ore markers), as summaries or GPS points. No reading the map's voxel data directly, which would be cheating.
 12. **Docking**:
     - Read connector, merge block and landing gear status.

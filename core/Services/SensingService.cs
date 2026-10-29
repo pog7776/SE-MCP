@@ -28,7 +28,7 @@ namespace SEMcp.Core.Services
             dispatcher.Register("sensors.get", Sensors);
         }
 
-        private static double[] Vec(Vector3D v, int digits = 2) =>
+        internal static double[] Vec(Vector3D v, int digits = 2) =>
             new[] { Math.Round(v.X, digits), Math.Round(v.Y, digits), Math.Round(v.Z, digits) };
 
         private IEnumerable<T> OnConstruct<T>(JsonObject p) where T : class, IMyTerminalBlock
@@ -61,7 +61,7 @@ namespace SEMcp.Core.Services
             };
         }
 
-        private object Detected(MyDetectedEntityInfo info, Vector3D from)
+        internal static object Detected(MyDetectedEntityInfo info, Vector3D from)
         {
             if (info.IsEmpty())
                 return null;

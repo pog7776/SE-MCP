@@ -15,7 +15,7 @@ The protocol between the Python MCP server and the in-game plugin. Keep this in 
 
 ```json
 { "port": 8765, "token": "...", "readOnly": false, "allowPbCodePush": true,
-  "allowAutopilot": true, "allowScreenshots": true, "maxRangeMeters": 50000 }
+  "allowAutopilot": true, "allowScreenshots": true, "allowWeapons": false, "maxRangeMeters": 50000 }
 ```
 
 ## Messages (JSON-RPC 2.0)
@@ -210,6 +210,20 @@ These cover every text surface of a block: LCDs, cockpit screens, programmable b
 |---|---|---|
 | `character.switch` | any of `helmet`, `jetpack`, `dampeners`, `lights` (bool) | `changed[]`, and the four states. Uses the character's own `Switch*` calls (like pressing J/X/Z/L), which sync like player input; only the keys given that differ are toggled |
 | `session.save` | — | `saved`, `world`, `path`, `backups` (`MaxBackupSaves`), `seconds`. A normal save of the current world (`IMySession.Save()` with no name; a custom name would act like "Save As" and move the session). The game keeps earlier versions in the world's Backup folder. Server/single player only (`feature_disabled` on a client). Blocks the game thread while saving |
+
+## Combat methods (M7)
+
+Weapons are `IMyUserControllableGun` blocks (turrets and fixed guns) and custom turret controllers (`IMyTurretControlBlock`) on the construct. Firing is opt-in: `weapon.fire`, and `ShootOnce`/`Shoot*` through `block.action`/`block.set_property`, return `feature_disabled` unless `allowWeapons: true` (default false). Aiming and target settings are not gated.
+
+| Method | Params | Returns |
+|---|---|---|
+| `weapons.get` | `gridId` | `gridName`, `weapons[]` (`id`, `name`, `type`, `kind` (`turret`/`fixed`/`turret controller`), `gridName`, `enabled`, `working`, `integrity`; guns: `shooting`, `magazines[]` (accepted subtypes), `loaded`, `magazinesInside`; turrets and controllers: `ai`, `underControl`, `hasTarget`, `aimed`, `target` (detected entity, as `camera.raycast` hits), `range`, `targets` (flags), `targetingGroup`, `targetingGroups[]`; turrets: `idleRotation`, `azimuthDeg`, `elevationDeg`; controllers: `tools[]`, `camera`, `azimuthRotor`, `elevationRotor`), `ammo` (per accepted magazine subtype: `name`, `rounds` per magazine, `carried` on the construct) |
+| `turret.set` | `blockId` or `blockIds[]`; any of `reset`, `range`, `idleRotation`, `targetingGroup`, `targets` (`{enemies, neutrals, characters, largeGrids, smallGrids, stations, missiles, meteors}`; controllers take `friends` instead of `enemies`) | `changed[]`. `reset` = `ResetTargetingToDefault` (undo `turret.aim`) |
+| `turret.aim` | `blockId(s)`; `position` (+ `velocity` to lead a moving target), or `entityId`, or `azimuth`/`elevation` (degrees) | `aimed[]`. `SetTarget`/`TrackTarget`/`SetManualAzimuthAndElevation`. Controllers only take `entityId`; fixed guns refuse |
+| `weapon.fire` | `blockId(s)`, `mode` (`once`/`on`/`off`) | `fired[]`, `mode`. Terminal actions `ShootOnce`/`Shoot_On`/`Shoot_Off` (sync like a timer or PB) |
+| `weapon.magazine` | `blockId`, `magazine` (subtype or display name; must be one the weapon accepts) | `before`, `after`, `switched`, `magazine`. Host hook: `MyGunBase.SwitchAmmoMagazine`; server/single player only |
+| `camera.track` | `gridId`, `position` (where the target should be now), `entityId?` (the target being tracked), `overshoot?`=50 | `camera` (the one used), `hit`, `lost` (nothing hit, or a different entity), `scanRangeLeft`; or `camera: null` + `notReady[]` (`camera`, `reason` `charging`/`outside its view cone`, `msUntilScan`). One step of a lidar-style track: raycasts a little past the point with the most-charged camera that can scan it |
+| `damage.get` | `gridId` | `gridName`, `blocks` (count), `damaged[]` (`id` for terminal blocks, `name`, `type`, `gridName`, `position`, `integrity`, `damage`, `functional`, `deformed`, `missing` components) |
 
 ## Host-only methods
 

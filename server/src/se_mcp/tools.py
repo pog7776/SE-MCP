@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import math
+import re
 from typing import Any, Awaitable, Callable
 
 from mcp.server.mcpserver import Image, MCPServer
 
 from . import autopilot
 from . import build
+from . import combat
 from . import forecast as forecast_mod
 from . import format as fmt
 from . import items as items_mod
@@ -1015,5 +1018,193 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         """Sensor blocks on a ship: triggered or not, their field size, what they detect and what's in range now."""
         target = await resolve.grid(bridge, grid)
         return vision.sensors_text(await bridge.call("sensors.get", {"gridId": target["id"]}))
+
+    # --- Combat: turrets, guns, ammo, camera tracking, damage. ---
+
+    async def _weapons(grid: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+        target = await resolve.grid(bridge, grid)
+        return target, await bridge.call("weapons.get", {"gridId": target["id"]})
+
+    @tool
+    async def weapons(grid: str | None = None) -> str:
+        """Turrets, fixed guns and custom turret controllers on a ship: what each is targeting, its target
+        settings and range, the loaded magazine, and the ammo carried on board."""
+        _, r = await _weapons(grid)
+        return combat.weapons_text(r)
+
+    @tool
+    async def set_turrets(turrets: str = "all", enemies: bool | None = None, neutrals: bool | None = None,
+                          characters: bool | None = None, large_grids: bool | None = None, small_grids: bool | None = None,
+                          stations: bool | None = None, missiles: bool | None = None, meteors: bool | None = None,
+                          range_m: float | None = None, targeting_group: str | None = None,
+                          idle_rotation: bool | None = None, reset: bool = False, grid: str | None = None) -> str:
+        """Change what turrets shoot at: target types (enemies, neutrals, characters, grids, stations, missiles,
+        meteors), range, the block group they aim for ("Weapons", "Propulsion", "PowerSystems", or "" for default)
+        and idle rotation. turrets: comma-separated names, or "all". Only the options you pass change.
+        reset=True first returns turrets to their own targeting after aim_turrets."""
+        _, r = await _weapons(grid)
+        chosen = combat.pick(r["weapons"], turrets, ("turret", "turret controller"))
+        flags = {k: v for k, v in (("enemies", enemies), ("neutrals", neutrals), ("characters", characters),
+                                   ("largeGrids", large_grids), ("smallGrids", small_grids), ("stations", stations),
+                                   ("missiles", missiles), ("meteors", meteors)) if v is not None}
+        params: dict[str, Any] = {"blockIds": [w["id"] for w in chosen], "reset": reset}
+        if flags:
+            params["targets"] = flags
+        if range_m is not None:
+            params["range"] = range_m
+        if targeting_group is not None:
+            params["targetingGroup"] = targeting_group
+        if idle_rotation is not None:
+            params["idleRotation"] = idle_rotation
+        changed = (await bridge.call("turret.set", params))["changed"]
+        return f"Updated {len(changed)} turret(s): {', '.join(changed)}."
+
+    @tool
+    async def aim_turrets(turrets: str = "all", at: str | None = None, velocity: str | None = None,
+                          azimuth_deg: float | None = None, elevation_deg: float | None = None, grid: str | None = None) -> str:
+        """Point turrets at something. at: a GPS name, a GPS string or "x, y, z"; add velocity "vx, vy, vz" (m/s)
+        for a moving target so they lead it. Or aim by angle with azimuth_deg/elevation_deg. Doesn't fire.
+        Turrets with AI on may switch back to their own targets; set_turrets(reset=True) hands control back."""
+        _, r = await _weapons(grid)
+        chosen = combat.pick(r["weapons"], turrets, ("turret", "turret controller"))
+        params: dict[str, Any] = {"blockIds": [w["id"] for w in chosen]}
+        what = ""
+        if at:
+            name, point = await autopilot.resolve_target(bridge, at)
+            params["position"] = point
+            what = f"at {name}"
+            if velocity:
+                v = autopilot.parse_coords(velocity)
+                if not v:
+                    return "velocity must be 'vx, vy, vz' in m/s."
+                params["velocity"] = v[1]
+                what += f", leading it at {math.hypot(*v[1]):.0f} m/s"
+        elif azimuth_deg is not None or elevation_deg is not None:
+            if azimuth_deg is not None:
+                params["azimuth"] = azimuth_deg
+            if elevation_deg is not None:
+                params["elevation"] = elevation_deg
+            what = f"to azimuth {azimuth_deg if azimuth_deg is not None else '-'}, elevation {elevation_deg if elevation_deg is not None else '-'}"
+        else:
+            return "Give `at` (GPS or coordinates) or azimuth_deg/elevation_deg."
+        aimed = (await bridge.call("turret.aim", params))["aimed"]
+        return f"Aimed {', '.join(aimed)} {what}."
+
+    @tool
+    async def fire_weapons(weapons: str, mode: str = "once", grid: str | None = None) -> str:
+        """Fire weapons: mode "once" (one shot), "on" (keep firing) or "off". weapons: comma-separated names,
+        or "all". Needs allowWeapons in the plugin config (off by default). Check what's in the line of fire."""
+        _, r = await _weapons(grid)
+        chosen = combat.pick(r["weapons"], weapons, ("turret", "fixed"))
+        result = await bridge.call("weapon.fire", {"blockIds": [w["id"] for w in chosen], "mode": mode})
+        verb = {"once": "Fired one shot from", "on": "Firing", "off": "Stopped firing"}.get(mode, mode)
+        return f"{verb} {', '.join(result['fired'])}."
+
+    @tool
+    async def load_magazine(weapon: str, magazine: str, grid: str | None = None) -> str:
+        """Switch which magazine a weapon uses. Only some weapons take several: interior turrets (rifle
+        magazines) and flare launchers (flares or fireworks). Single player / host only."""
+        _, r = await _weapons(grid)
+        w = combat.pick(r["weapons"], weapon, ("turret", "fixed"))
+        if len(w) != 1:
+            return f"'{weapon}' matches several weapons: {', '.join(x['name'] for x in w)}."
+        w = w[0]
+        wanted = magazine.strip().lower()
+        options = {m: r["ammo"].get(m, {}).get("name", m) for m in w.get("magazines", [])}
+        if len(options) < 2:
+            return f"{w['name']} only takes {', '.join(options.values()) or 'one kind of ammo'}."
+        match = [m for m, n in options.items() if wanted in (m.lower(), n.lower())] or \
+                [m for m, n in options.items() if wanted in m.lower() or wanted in n.lower()]
+        if len(match) != 1:
+            return f"{w['name']} takes: {', '.join(options.values())}." + (" Which one?" if match else "")
+        if not r["ammo"].get(match[0], {}).get("carried") and match[0] != w.get("loaded"):
+            return f"No {options[match[0]]} on board, so {w['name']} would have nothing to shoot. Load some first."
+        result = await bridge.call("weapon.magazine", {"blockId": w["id"], "magazine": match[0]})
+        if not result["switched"]:
+            return f"{w['name']} didn't switch to {options[match[0]]} (none on board, or this isn't the host)."
+        return f"{w['name']} now uses {options[match[0]]} (was {options.get(result['before'], result['before'])})."
+
+    @tool
+    async def track_target(camera: str | None = None, at: str | None = None, seconds: float = 10,
+                           interval_s: float = 1.0, turrets: str | None = None, mark_gps: bool = False,
+                           grid: str | None = None) -> str:
+        """Follow a ship or object with the ship's cameras, like a lidar script: re-scans where the target
+        should be every interval_s (from its last position and velocity), using whichever camera can see it.
+        Start from `camera` (scan straight ahead to acquire) or `at` (GPS or "x, y, z" of the target).
+        turrets: also keep these turrets aimed at the track (no firing). mark_gps leaves a GPS at its last fix."""
+        target = await resolve.grid(bridge, grid)
+        if camera:
+            cam = await resolve.block(bridge, camera, grid)
+            first = await bridge.call("camera.raycast", {"blockId": cam["id"], "distance": 5000})
+            hit = first.get("hit")
+            if not hit:
+                return "Couldn't acquire: " + vision.scan_text(first)
+        elif at:
+            _, point = await autopilot.resolve_target(bridge, at)
+            first = await bridge.call("camera.track", {"gridId": target["id"], "position": point})
+            hit = first.get("hit")
+            if not hit:
+                return combat.no_fix_text(first)
+        else:
+            return "Give `camera` to acquire by scanning ahead, or `at` with the target's GPS or coordinates."
+
+        aim_ids: list[str] = []
+        if turrets:
+            _, r = await _weapons(grid)
+            aim_ids = [w["id"] for w in combat.pick(r["weapons"], turrets, ("turret",))]
+
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        fix_time = start
+        own = await bridge.call("grid.motion", {"gridId": target["id"]})
+        first_distance = math.dist(own["center"], hit["position"])
+        entity, pos, vel = hit["id"], hit["position"], hit["velocity"]
+        fixes, misses, cameras_used = 1, 0, set()
+        interval = max(0.25, interval_s)
+        while loop.time() - start < min(seconds, 120):
+            if aim_ids:
+                await bridge.call("turret.aim", {"blockIds": aim_ids, "position": pos, "velocity": vel})
+            await asyncio.sleep(interval)
+            guess = combat.predict(pos, vel, loop.time() - fix_time)
+            r = await bridge.call("camera.track", {"gridId": target["id"], "position": guess, "entityId": entity})
+            if not r.get("camera"):
+                misses += 1
+            elif r["lost"]:
+                misses += 1
+                cameras_used.add(r["camera"])
+            else:
+                hit, pos, vel, fix_time = r["hit"], r["hit"]["position"], r["hit"]["velocity"], loop.time()
+                fixes += 1
+                misses = 0
+                cameras_used.add(r["camera"])
+            if misses >= 3:
+                break
+        own = await bridge.call("grid.motion", {"gridId": target["id"]})
+        last_distance = math.dist(own["center"], pos)
+        elapsed = max(0.1, fix_time - start)
+        closing = (first_distance - last_distance) / elapsed if fixes > 1 else 0.0
+        lines = [f"Tracked {vision.entity_line(hit)}",
+                 f"{fixes} fix(es) over {loop.time() - start:.0f} s with {', '.join(sorted(cameras_used)) or 'the first camera'}."]
+        if fixes > 1:
+            lines.append(f"Range {first_distance:,.0f} m -> {last_distance:,.0f} m "
+                         + (f"(closing at {closing:.1f} m/s)." if closing > 0.5 else
+                            f"(opening at {-closing:.1f} m/s)." if closing < -0.5 else "(holding range)."))
+        if misses >= 3:
+            lines.append("LOST the target (3 scans missed).")
+        lines.append(f"Last fix: {', '.join(f'{c:.0f}' for c in pos)}, velocity {', '.join(f'{c:.1f}' for c in vel)} m/s.")
+        if aim_ids:
+            lines.append(f"Turrets kept on it: {len(aim_ids)}.")
+        if mark_gps:
+            name = re.sub("[-]", "", hit.get("name") or "").strip() or hit["type"]
+            await bridge.call("gps.add", {"name": f"Track: {name}", "coords": pos, "description": "Last camera fix"})
+            lines.append(f"GPS 'Track: {name}' added.")
+        return "\n".join(lines)
+
+    @tool
+    async def damage_report(grid: str | None = None) -> str:
+        """Damaged, broken or unfinished blocks on a ship (armor included), worst first, with the components
+        each needs. Use highlight_blocks(damaged=True) to show the functional ones to the player."""
+        target = await resolve.grid(bridge, grid)
+        return combat.damage_text(await bridge.call("damage.get", {"gridId": target["id"]}))
 
     return server

@@ -283,6 +283,26 @@ namespace SEMcp.Host
         public static void TransferByUser(VRage.Game.ModAPI.IMyInventory src, VRage.Game.ModAPI.IMyInventory dst, uint itemId, VRage.MyFixedPoint amount) =>
             MyInventory.TransferByUser((MyInventory)src, (MyInventory)dst, itemId, -1, amount);
 
+        private static Sandbox.Game.Weapons.MyGunBase GunBase(Sandbox.ModAPI.IMyTerminalBlock block) =>
+            (block as IMyGunObject<Sandbox.Game.Weapons.MyGunBase>)?.GunBase;
+
+        public static string CurrentMagazine(Sandbox.ModAPI.IMyTerminalBlock block)
+        {
+            var gun = GunBase(block);
+            return gun != null && gun.HasAmmoMagazines ? gun.CurrentAmmoMagazineId.SubtypeName : null;
+        }
+
+        // The weapon's own switch. Runs where the weapon is simulated, so it only takes effect on the server (single player is fine).
+        public static bool SwitchMagazine(Sandbox.ModAPI.IMyTerminalBlock block, MyDefinitionId magazine)
+        {
+            var gun = GunBase(block);
+            if (gun == null || !gun.IsAmmoMagazineCompatible(magazine))
+                return false;
+            if (gun.CurrentAmmoMagazineId == magazine)
+                return true;
+            return gun.SwitchAmmoMagazine(magazine);
+        }
+
         private static object Vec(Vector3D v) => new[] { Math.Round(v.X, 5), Math.Round(v.Y, 5), Math.Round(v.Z, 5) };
 
         // Sun direction and how each solar panel / oxygen farm faces it, using the game's own formula:
