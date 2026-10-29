@@ -221,8 +221,9 @@ Client config (README):
 6. ✅ **Vision + sensing**: `camera.capture` (host, offscreen render via a Harmony prefix on `MyRender11.DrawScene`; CameraLCD approach), `camera.list` / `camera.raycast` / `sensors.get`. Tools: `list_cameras`, `camera_view`, `ship_photo` (drone shot from any side), `camera_scan`, `sensors`, `screenshot(hide_hud=True)`. Captures are saved to `%AppData%\SpaceEngineers\SEMcp\captures`. Verified live: every camera on the Red Ship renders in about 50 ms. Sensors were verified live too (one triggered by the player, one idle). Not verified yet: Interim (.NET 10).
 7. **More of the game**: inventories, production, build planning, screens, highlights, suit, environment, forecasts, ore detectors, combat, saves, docking. See below.
 8. **Fair play**: a switchable mode that limits what the assistant knows and can reach to what the ship could plausibly sense and talk to. See below.
-9. **Polish**: README, protocol.md, fake-bridge tests, error messages, a `selftest` tool. The end-to-end MCP stdio run already passes for every read tool.
+9. **Polish**: README, protocol.md, fake-bridge tests, error messages, a `selftest` tool, and the first real run of the Interim (.NET 10) build (deliberately left until all milestones are done). The end-to-end MCP stdio run already passes for every read tool.
 10. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game, plus game events (damage, destroyed blocks, low resources, chat, new contacts). See below.
+11. **In-game UI and displays**: the MCP Display screen app, the assistant's own HUD and windows, Text HUD API support, and (opt-in) authoring new screen apps at runtime. See below.
 
 ### M6: Vision + sensing
 
@@ -265,7 +266,8 @@ Everything here is tagged for fair play as it's built (see M8). The order is rou
    - Done: `screens.list` / `screen.write` / `screen.mode`, and the tools `list_screens`, `write_screen` (by screen name, with styling; reports a replaced script) and `set_screen_mode`.
    - Verified live on the Control Seat's spare screen and photographed with `screenshot(hide_hud=True)`.
    - Later: sprites (`DrawFrame`) for drawn status boards or a face.
-   - Later: a "Claude Display" app (a text surface script, `[MyTextSurfaceScript]` registered via `MyTextSurfaceScriptFactory.Instance.RegisterFromAssembly`). It draws whatever the assistant sends (animated boards, graphs, the AI face) with no PB. Apps run on each client, so in multiplayer others need it too, which means shipping the class in a companion workshop mod. Pairs with M10 Companion.
+   - Later: the "MCP Display" app (M11).
+   - The tools are dynamic: `set_screen_mode` checks the screen's own app list (`GetScripts()`) at call time, so modded apps work. They work on any block screen (`IMyTextSurfaceProvider`), modded blocks included.
 5. **Highlights**: make blocks glow (the scenario highlight system) or draw markers. "Show me the damaged blocks."
 6. **Suit**: helmet, jetpack, dampeners, lights.
 7. **Environment**: nearby planets and moons (gravity, atmosphere, altitude), asteroids, weather, day/night.
@@ -308,6 +310,23 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 - **Persona.** A configurable name and voice for the AI ("ship AI" vs "suit AI" depending on whether the player is seated), and rules for when to stay quiet.
 - **Optional voice.** Local speech-to-text for push-to-talk input and text-to-speech for replies.
 
+### M11: In-game UI and displays
+
+Background: screen "apps" are text surface scripts (TSS). Each is a C# class tagged `[MyTextSurfaceScript("TSS_Id", "Name")]`, deriving `MyTSSCommon`. `MyTextSurfaceScriptFactory.LoadScripts` collects them at world load from the game, mod scripts and client plugin assemblies (`MyPlugins.UserAssemblies`). `RegisterFromAssembly` is public, so the plugin can add its own. Apps run on each client (one instance per screen, `Run()` every 10/100 ticks, drawing sprites). The screen only stores the app id, which syncs.
+
+- **MCP Display app** (first): one built-in app, e.g. `TSS_MCPDisplay`, that draws whatever the assistant sends as data (text, shapes, bars, gauges, images, simple animation), no PB needed. Uses: status boards, graphs, and the AI's face/avatar for the companion.
+  - The drawing is described in JSON, pushed per screen, and kept in the host.
+  - Registered from the host, re-registered on hot reload.
+  - Multiplayer: other players see it only if they have the app. To fix that, ship the same class in a small companion workshop mod.
+- **The assistant's own UI**: the plugin has full access to the game's GUI (`MyGuiSandbox`, `MyGuiScreenBase`, HUD drawing).
+  - Possible pieces: a chat/console window for talking to the AI (pairs with M10), confirmation prompts ("Organize the cargo? Yes/No"), HUD overlays (text, markers, bars), and highlights that point at things.
+  - Hot reload: open screens must be closed in `Stop()`.
+- **Text HUD API support** (DraygoKorvan's mod, workshop 758597413; its page currently says removed/hidden):
+  - Other mods use it through the `HudAPIv2` class, which registers over ModAPI mod messages; it's client-side only.
+  - If a world has it loaded, draw our HUD text through it so it matches other mods.
+  - Otherwise use our own HUD drawing (the default).
+- **Authoring new apps at runtime** (opt-in, off by default): an endpoint takes C# for a screen app, compiles it with the game's own script compiler against the mod whitelist (as for PBs and mods), registers it under a versioned id, and reports compiler errors like `write_pb_script`. It runs code inside the game, so it's gated in config and local only. MCP Display should cover most needs first.
+
 ## Testing
 
 - **Python:** `tests/fake_bridge.py` speaks the protocol with canned data, and `pytest` covers tools, resolution and formatting without the game.
@@ -317,6 +336,7 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 
 - Workshop-mod host (file-polling transport over Core) for a no-Pulsar install.
 - Torch/dedicated-server host with per-player auth.
-- Connector/merge docking helpers, inventory transfer, assembler queueing.
-- `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only.
+- `debug.eval`: compile and run a C# snippet in-game via the Roslyn DLLs in Bin64. Off by default. Full code execution, local dev only. Shares its compiler plumbing with M11's runtime app authoring.
+- AI blocks: "follow me" (AI Basic Task mission) and route recording/replay (AI Recorder); writing AI Flight waypoints through game internals.
+- Production: reorder queue entries (`MoveQueueItemRequest`), refinery ore priority.
 - **In-world presence (optional):** the assistant reaches ships the way an in-game AI would, not by "god mode". Ideas: require an antenna/broadcast link from the player (suit radio on, ship antenna in range, `requireAntennaLink`); the "AI core" lives in a specific block (a tagged PB or the Automaton block), so damaging it cuts the assistant off; limited range or bandwidth; ships without a link stay unreachable. Off by default, a fun roleplay mode.
