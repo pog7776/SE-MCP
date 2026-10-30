@@ -103,3 +103,56 @@ async def test_track_target_follows_a_moving_hit():
     assert "Tracked Pirate (SmallGrid, enemies)" in text
     assert "closing at" in text
     assert guesses[1][2] < 200  # the second scan aims where the target should have moved to
+
+
+def _target_handlers(los_hit: dict[str, Any] | None) -> dict[str, Any]:
+    h = default_handlers()
+    shooters = {"gridName": "Red Ship", "ammo": {}, "weapons": [
+        {**WEAPONS["weapons"][1], "position": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0]}]}
+    h["weapons.get"] = lambda p: shooters
+    h["block.get"] = lambda p: {
+        "block": {"id": p["blockId"], "name": "Whale_Hydrogen Tank 2", "gridId": "2002"}, "gridName": "Whale",
+        "position": [0.0, 0.0, -300.0], "forward": [1, 0, 0], "up": [0, 1, 0], "gridVelocity": [0.0, 0.0, 5.0]}
+    h["grid.motion"] = lambda p: {"center": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0],
+                                  "right": [1.0, 0.0, 0.0], "cockpit": None, "isStatic": False, "gravityG": 0,
+                                  "angularVelocity": [0, 0, 0], "gyros": []}
+    h["turret.aim"] = lambda p: {"aimed": ["Gatling Turret"]}
+    h["los.check"] = lambda p: {"clear": los_hit is None, "distance": 300, "hit": los_hit}
+    h["weapon.fire"] = lambda p: {"fired": ["Gatling Turret"], "mode": p["mode"]}
+    return h
+
+
+async def test_target_block_aims_turrets_at_the_block_and_fires_through_its_armour():
+    h = _target_handlers({"entity": "Whale", "entityId": "2002", "block": {"name": "Heavy Armor Block"}, "fromStart": 296})
+    text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets",
+                                           "fire": True})
+    assert text.startswith("Target: Whale_Hydrogen Tank 2 on Whale, 300 m away.")
+    assert "Aimed Gatling Turret, leading it at 5 m/s." in text
+    assert "Gatling Turret's shots meet Heavy Armor Block first, 4 m before Whale_Hydrogen Tank 2." in text
+    assert text.endswith("Fired one shot from Gatling Turret.")
+
+
+async def test_target_block_holds_fire_when_another_ship_is_in_the_way():
+    h = _target_handlers({"entity": "Blue Ship", "entityId": "5005", "block": {"name": "Armor"}, "fromStart": 120})
+    text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets",
+                                           "fire": True})
+    assert "! Blue Ship is in Gatling Turret's line of fire (120 m out)." in text
+    assert "Held fire on Gatling Turret" in text and "Fired one shot" not in text
+
+
+async def test_target_block_can_aim_beside_it_for_a_warning_shot():
+    aimed: list[dict[str, Any]] = []
+    h = _target_handlers(None)
+    h["turret.aim"] = lambda p: aimed.append(p) or {"aimed": ["Gatling Turret"]}
+    text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets",
+                                           "miss_by_m": 15})
+    assert "aiming 15 m to the side" in text
+    pos = aimed[0]["position"]
+    assert abs(abs(pos[0]) - 15) < 1e-6 and pos[2] == -300
+
+
+async def test_target_block_names_armour_plainly():
+    h = _target_handlers({"entity": "Whale", "entityId": "2002",
+                          "block": {"name": "MyObjectBuilder_CubeBlock/HalfArmorBlock"}, "fromStart": 294})
+    text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets"})
+    assert "Gatling Turret's shots meet Half Armor Block first, 6 m before Whale_Hydrogen Tank 2." in text

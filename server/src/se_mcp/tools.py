@@ -1246,13 +1246,115 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                 guns = combat.pick(r["weapons"], spec, ("fixed",))
             except ResolveError as e:
                 return f"{e} (face takes forward/back/up/down/left/right, 'guns', or a fixed weapon's name)"
-            world = steering.normalize([sum(g["forward"][i] for g in guns) for i in range(3)])
-            local = steering.to_local(world, frame)
-            centre = [sum(g["position"][i] for g in guns) / len(guns) - frame["center"][i] for i in range(3)]
-            origin = steering.to_local(centre, frame)
-            what = ", ".join(g["name"] for g in guns[:4]) + (f" (+{len(guns) - 4})" if len(guns) > 4 else "")
+            local, origin = _gun_frame(guns, frame)
+            what = _names(guns)
         result = await steering.point_ship(bridge, ship["id"], point, local, origin, max_rpm=max_rpm, force=force)
         return f"Pointing {what} at {name}: {result}"
+
+    def _block_label(b: dict[str, Any]) -> str | None:
+        """A hit block's name; armour has none, so "MyObjectBuilder_CubeBlock/HalfArmorBlock" -> "Half Armor Block"."""
+        name = b.get("name") or b.get("type")
+        if not name or name.startswith("MyObjectBuilder_") or "/" in name:
+            raw = (name or "").split("/")[-1] or (b.get("type") or "").split("/")[-1]
+            name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", raw.removeprefix("MyObjectBuilder_")) or None
+        return name
+
+    def _names(items: list[dict[str, Any]], most: int = 4) -> str:
+        return ", ".join(x["name"] for x in items[:most]) + (f" (+{len(items) - most})" if len(items) > most else "")
+
+    def _gun_frame(guns: list[dict[str, Any]], frame: dict[str, Any]) -> tuple[list[float], list[float]]:
+        """Fixed guns' average facing and mount point, in the ship's right/up/forward frame (for point_ship)."""
+        from . import steering
+
+        world = steering.normalize([sum(g["forward"][i] for g in guns) for i in range(3)])
+        centre = [sum(g["position"][i] for g in guns) / len(guns) - frame["center"][i] for i in range(3)]
+        return steering.to_local(world, frame), steering.to_local(centre, frame)
+
+    @tool
+    async def target_block(block: str, target_grid: str, weapons: str = "all", grid: str | None = None,
+                           fire: bool = False, miss_by_m: float = 0, max_rpm: float = 1.0, force: bool = False) -> str:
+        """Aim at one block on another ship or station (its hydrogen tank, reactor, a turret...), not just the ship.
+        weapons: "all", "turrets", "guns" (fixed: the ship turns to aim them) or comma-separated weapon names.
+        Turrets lead a moving target. Checks the line of fire first and says what a shot would hit first (armour in
+        front of the block is normal; another ship in the way stops a shot). fire=True fires one shot from each once
+        aimed. miss_by_m aims that many meters to the side of the block, for a warning shot that passes close by.
+        Firing needs allowWeapons in the plugin config."""
+        from . import steering
+
+        ship, r = await _weapons(grid)
+        try:
+            tb = await resolve.block(bridge, block, target_grid)
+        except ResolveError as e:
+            return str(e)
+        info = await bridge.call("block.get", {"blockId": tb["id"]})
+        target, velocity = info["position"], info.get("gridVelocity") or [0, 0, 0]
+        label = f"{info['block']['name']} on {info['gridName']}"
+
+        spec = weapons.strip().lower()
+        kinds = {"turrets": ("turret",), "guns": ("fixed",), "fixed": ("fixed",)}.get(spec, ("turret", "fixed"))
+        try:
+            chosen = combat.pick(r["weapons"], "all" if spec in ("all", "turrets", "guns", "fixed") else weapons, kinds)
+        except ResolveError as e:
+            return str(e)
+        turrets = [w for w in chosen if w["kind"] == "turret"]
+        guns = [w for w in chosen if w["kind"] == "fixed"]
+
+        frame = steering.frame_of(await bridge.call("grid.motion", {"gridId": ship["id"]}))
+        aim = list(target)
+        if miss_by_m:
+            # Off to the shooter's side, across the line of fire, so the shot passes the block at that distance.
+            toward = [target[i] - frame["center"][i] for i in range(3)]
+            side = steering.cross(toward, frame["up"])
+            side = steering.normalize(side if steering.length(side) > 1e-6 else steering.perpendicular(toward))
+            aim = [target[i] + side[i] * miss_by_m for i in range(3)]
+
+        lines = []
+        if guns:
+            local, origin = _gun_frame(guns, frame)
+            lines.append(f"{_names(guns)}: " + await steering.point_ship(bridge, ship["id"], aim, local, origin,
+                                                                        max_rpm=max_rpm, force=force))
+        if turrets:
+            aimed = (await bridge.call("turret.aim", {"blockIds": [w["id"] for w in turrets], "position": aim,
+                                                     "velocity": velocity}))["aimed"]
+            moving = steering.length(velocity)
+            lines.append(f"Aimed {', '.join(aimed)}" + (f", leading it at {moving:.0f} m/s." if moving > 0.5 else "."))
+
+        # What would each shooter hit first?
+        r = await bridge.call("weapons.get", {"gridId": ship["id"]})
+        now = {w["id"]: w for w in r["weapons"]}
+        blocked = []
+        cover: dict[str, list[tuple[str, float]]] = {}  # what's in front of the block -> (shooter, meters before it)
+        for w in turrets + guns:
+            start = now.get(w["id"], w)["position"]
+            los = await bridge.call("los.check", {"from": start, "to": aim, "ignoreId": ship["id"], "skip": 3})
+            hit = los.get("hit")
+            if los.get("clear") or not hit:
+                continue
+            if str(hit.get("entityId")) == str(info["block"].get("gridId")) or hit.get("entity") == info["gridName"]:
+                what = _block_label(hit.get("block") or {})
+                if what and what != info["block"]["name"]:
+                    cover.setdefault(what, []).append((w["name"], los["distance"] - hit["fromStart"]))
+            else:
+                blocked.append(w["name"])
+                lines.append(f"! {hit.get('entity') or 'something'} is in {w['name']}'s line of fire "
+                             f"({hit['fromStart']:.0f} m out).")
+
+        for what, hits in cover.items():
+            near, far = min(m for _, m in hits), max(m for _, m in hits)
+            gap = f"{near:.0f}" if round(near) == round(far) else f"{near:.0f}-{far:.0f}"
+            who = hits[0][0] + "'s shots" if len(hits) == 1 else f"{len(hits)} weapons' shots"
+            lines.append(f"{who} meet {what} first, {gap} m before {info['block']['name']}.")
+
+        distance = steering.length([target[i] - frame["center"][i] for i in range(3)])
+        head = f"Target: {label}, {distance:.0f} m away" + (f", aiming {miss_by_m:g} m to the side" if miss_by_m else "")
+        if fire:
+            shooters = [w for w in turrets + guns if w["name"] not in blocked]
+            if shooters:
+                fired = (await bridge.call("weapon.fire", {"blockIds": [w["id"] for w in shooters], "mode": "once"}))["fired"]
+                lines.append(f"Fired one shot from {', '.join(fired)}.")
+            if blocked:
+                lines.append(f"Held fire on {', '.join(blocked)}: something else is in the way.")
+        return head + ".\n" + "\n".join(lines)
 
     @server.tool(structured_output=False)
     async def screenshot(max_width: int = 1280, hide_hud: bool = False) -> Image | str | list:

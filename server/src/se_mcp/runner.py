@@ -77,7 +77,8 @@ class StatusHud:
     COLORS = {"idle": "#8FA3B0B0", "thinking": "#4FC3F7", "tool": "#FFB74D", "error": "#EF5350"}
     TTL = 75
 
-    def __init__(self, bridge: Bridge, x: float = 0.012, y: float = 0.58, clock: Callable[[], float] = time.monotonic):
+    # Top-left: clear of the chat box (bottom-left) and the toolbar and ship panels.
+    def __init__(self, bridge: Bridge, x: float = 0.012, y: float = 0.035, clock: Callable[[], float] = time.monotonic):
         self.bridge, self.x, self.y, self.clock = bridge, x, y, clock
         self.name = "Suit AI"
         self.state, self.tool = "idle", None

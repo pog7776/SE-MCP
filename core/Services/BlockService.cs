@@ -95,6 +95,11 @@ namespace SEMcp.Core.Services
                 customInfo = block.CustomInfo,
                 customData = block.CustomData,
                 showInTerminal = block.ShowInTerminal,
+                // Where it is in the world (centre of its cells) and how it's mounted, for aiming at it.
+                position = SensingService.Vec(block.WorldAABB.Center),
+                forward = SensingService.Vec(block.WorldMatrix.Forward, 4),
+                up = SensingService.Vec(block.WorldMatrix.Up, 4),
+                gridVelocity = SensingService.Vec(block.CubeGrid.Physics?.LinearVelocity ?? Vector3D.Zero),
                 missingComponents = block.SlimBlock != null ? Dto.MissingComponents(block.SlimBlock) : null,
                 properties = properties.Select(prop => new { id = prop.Id, type = prop.TypeName, value = ReadProperty(block, prop) }).ToList(),
                 actions = actions.Select(a => new { id = a.Id, name = a.Name?.ToString() }).ToList(),

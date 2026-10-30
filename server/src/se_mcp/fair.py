@@ -156,6 +156,7 @@ TOOLS.update({
     "rename_blocks": Fairness("own", "construct"),
     "rotate_ship": Fairness("own", "construct"),
     "point_ship": Fairness("own", "construct", "the target's position must be known: radio, GPS or sensed"),
+    "target_block": Fairness("sensed", "construct", "fair mode: the block must be seen by a camera, turret or the player"),
     "ai_soul_presets": Fairness("own", None, "packaged personality files"),
     "use_ai_soul": Fairness("own", None, "writes the personality file outside the game"),
     "watch": Fairness("own", None, "reads what its method reads; same fairness as that method"),

@@ -327,6 +327,8 @@ Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the
     - ✅ `point_ship`: point a side (forward/back/up/down/left/right) or the fixed guns ("guns" or a weapon's name, aimed from where they're mounted) at a ship, station, radio signal, GPS or coordinates. Roll left as is.
     - ✅ `dock` parks thrusters off once connected (`park_thrusters`, default on): leaving them on fights the carrier, as the Red Fighter showed.
     - Verified live 2026-10-30: `point_ship` turned the Red Ship (80 m swing radius, two docked ships aboard) 124 deg at 1 rpm in 27 s to put its fixed Artillery on the Whale, ending 0.5 deg off.
+    - ✅ `target_block` (2026-10-30; the companion couldn't aim at "the Whale's remaining hydrogen tank", having no block positions): `block.get` now returns `position`/`forward`/`up`/`gridVelocity`. Aims turrets (leading a moving target) and/or fixed guns (turning the ship) at one block, says what each shot meets first (armour in front is normal; another ship in the way holds that weapon's fire), `fire` shoots once, `miss_by_m` aims beside it for a warning shot. Verified live: 7 Red Ship turrets on the Whale's tank, "6 weapons' shots meet Half Armor Block first, 6-7 m before" it.
+    - Next: `fire_weapons` bursts that respect reloads ("fire 4 rounds" from a 2-round turret), and target-lock on a block via the game's own lock.
     - Next: `level_ship` (up against gravity, for planets; needs gravity direction in `grid.motion`), a roll target for `point_ship` ("keep upright to the station"), `hold_heading`/track a moving target (re-point every second until told to stop, plugin-side loop from item 16), and a clearance sweep before turning (item 15's `path.sweep`, using the ship's swing radius).
     - Next, beyond rotation: `stop_ship` (kill all motion), `strafe`/`move_ship` by meters in the pilot's frame, `set_speed` for cruise, and a `ship_controls` summary (what's on/off, overrides, autopilot) so the AI can undo what it did.
 
@@ -441,6 +443,7 @@ Goal: chat with the assistant from inside the game, privately, and have it speak
 
 Background: screen "apps" are text surface scripts (TSS). Each is a C# class tagged `[MyTextSurfaceScript("TSS_Id", "Name")]`, deriving `MyTSSCommon`. `MyTextSurfaceScriptFactory.LoadScripts` collects them at world load from the game, mod scripts and client plugin assemblies (`MyPlugins.UserAssemblies`). `RegisterFromAssembly` is public, so the plugin can add its own. Apps run on each client (one instance per screen, `Run()` every 10/100 ticks, drawing sprites). The screen only stores the app id, which syncs.
 
+- **Camera feed on a screen** (asked for in game 2026-10-30: "the front camera on my left cockpit screen"): a live camera view on an LCD or cockpit screen. The CameraLCD plugin in `ref/CameraLCD` does exactly this (a TSS that renders a camera into the surface); adapt its approach as a screen app, or at least push a still image to a screen.
 - **MCP Display app** (first): one built-in app, e.g. `TSS_MCPDisplay`, that draws whatever the assistant sends as data (text, shapes, bars, gauges, images, simple animation), no PB needed. Uses: status boards, graphs, and the AI's face/avatar for the companion.
   - The drawing is described in JSON, pushed per screen, and kept in the host.
   - Registered from the host, re-registered on hot reload.
