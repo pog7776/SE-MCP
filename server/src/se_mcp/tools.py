@@ -1488,9 +1488,13 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
     @tool
     async def docking_status(grid: str | None = None) -> str:
-        """A ship's connectors (unconnected / connectable / connected and to what), landing gear and merge blocks."""
+        """A ship's connectors (unconnected / connectable / connected and to what), landing gear and merge blocks,
+        each with the way it faces and where it sits (meters right/up/forward of the ship's center), as seen from
+        the cockpit (a station: its grid axes). E.g. "the right connector" is the one that faces right."""
         target = await resolve.grid(bridge, grid)
-        return docking.status_text(await bridge.call("dock.get", {"gridId": target["id"]}))
+        r = await bridge.call("dock.get", {"gridId": target["id"]})
+        frame = docking.ship_frame(await bridge.call("grid.motion", {"gridId": target["id"]}))
+        return docking.status_text(r, frame)
 
     @tool
     async def landing_gear(action: str = "lock", block: str | None = None, grid: str | None = None) -> str:

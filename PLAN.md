@@ -304,6 +304,24 @@ Remaining items, reordered by value for effort, quick wins first and docking las
     - Also: auto-orient the ship to a chosen face first (today it must already face the surface), and recompute the footprint after turning.
     - Later: hazard checks for weapons' and thrusters' *directions* (a thruster blasting across a spot, not just under it), landing on planets (voxel surfaces).
 
+Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the Red Platform's Boom Dock (2026-10-30). It worked first time, but it took a scratch script for the geometry and ~1,000 hand-rolled raycasts for clearance:
+
+15. **Spatial sensing and distances** (next; the plugin should be able to sense shapes, not just lines). This is a different thing from M7 item 8 (planets, weather):
+    - ✅ `docking_status` names each connector's and gear's facing and place on the ship ("faces right, 20 m right, 6 m down, 18 m back of center"), as seen from the cockpit, or from the grid axes on a station. "The right connector" is now one call.
+    - ✅ `los.check`/`surface.scan` `ignoreId` looks through everything that moves with the ship: subparts (door leaves, turret barrels) and ships gear-locked onto it. Connector-docked ships still count, so ignoring a docked ship doesn't hide the station.
+    - **Swept-shape clearance** (`path.sweep`, game side): sweep the ship's real block cells (or a Havok shape cast of its collision shape) along a path. Return the first contact per leg, with the entity, the block, the distance along the leg and the gap left. One call instead of thousands of rays. The hand-rolled version had a bug the first time (a probe ray started inside the station), which is why this belongs in the plugin. `dock`, `fly_to` and `land` call it first and refuse with "blocked by X at Y m"; it's also a tool of its own.
+    - **Distances done right** (a focus): every distance a tool reports says what it measures from and to.
+      - `list_grids` today measures from the player to the nearest point of the ship's bounding box: the Blue Ship read "20 m away" while its connector was ~100 m off. Report surface-to-surface (closest blocks, or a shape cast) and center-to-center, labelled.
+      - Ship-to-ship gap: the closest approach between two ships' actual blocks, not bounding boxes. Also block-to-block distance.
+      - A shared helper and unit tests with known geometry, so every tool uses the same definitions.
+    - **Before/after damage diff** on `dock`, `land` and `fly_to`: snapshot integrity and deformation before moving and report only what changed. After the Blue Ship docked, 6 deformed blocks couldn't be told apart from old damage. Also make `ship_status` and `damage_report` count the same way (one counted integrity only, the other deformed blocks too).
+    - Small: `ship_photo` comes out black when the side is in shadow; raise exposure or add a fill light.
+
+16. **Pilot v2: roll, speed and the RC**:
+    - **Roll control:** `ConnectorPilot` aligns only the connector's facing and leaves roll wherever it is. Add a target up (default: match the target grid's up, i.e. upright to the station; or "keep", or an explicit side). Also give a short summary before it moves: the rotation, each leg's length and the clearance result.
+    - **Speed:** the loop runs over RPC a few times a second, so its gains and limits are conservative and the user finds it slow. Move the closed loop into the plugin, running every tick, with a trapezoidal velocity profile (full speed in transit, braking planned from measured thrust per axis). Python sends the goal and polls the status.
+    - **The RC:** the RC autopilot is fast in transit and has the game's collision avoidance, but it always turns its leading face toward the travel direction. So it can't hold a sideways connector attitude, and many ships (like the Blue Ship) don't have one. Plan: our pilot (v2) is the main pilot. When the ship has an RC, it's an option for long transit legs to the approach point, and our pilot always does the final approach.
+
 ### M8: Fair play
 
 The rule: everything the assistant can do is useful in plain sandbox mode, and fair mode limits it to what an in-game AI could know and reach.

@@ -45,10 +45,7 @@ namespace SEMcp.Core.Services
             int nu = (int)Math.Floor((u1 - u0) / step) + 1, nv = (int)Math.Floor((v1 - v0) / step) + 1;
             if ((long)nu * nv > 20000)
                 throw new RpcException(ErrorKind.InvalidParams, $"{nu}x{nv} cells is too many (max 20000): use a bigger step or a smaller area");
-            var ignore = new HashSet<long>();
-            if (p["ignoreId"] != null && MyAPIGateway.Entities.GetEntityById(p.Id("ignoreId")) is VRage.Game.ModAPI.IMyCubeGrid ig)
-                foreach (var g in ig.GetGridGroup(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical)?.GetGrids(new List<VRage.Game.ModAPI.IMyCubeGrid>()) ?? new List<VRage.Game.ModAPI.IMyCubeGrid> { ig })
-                    ignore.Add(g.EntityId);
+            var ignore = IgnoreSet(p);
             int layer = (int)p.Number("layer", 30);
             var hits = new List<VRage.Game.ModAPI.IHitInfo>();
             var rows = new List<double?[]>();
@@ -61,9 +58,9 @@ namespace SEMcp.Core.Services
                     var q = origin + u * (u0 + i * step) + v * (v0 + j * step);
                     hits.Clear();
                     MyAPIGateway.Physics.CastRay(q + n * top, q - n * depth, hits, layer);
-                    var hit = hits.FirstOrDefault(h => h.HitEntity == null || !ignore.Contains(h.HitEntity.EntityId));
+                    var hit = hits.FirstOrDefault(h => !Ignored(h, ignore));
                     row[j] = hit == null ? (double?)null : Math.Round(Vector3D.Dot(hit.Position - origin, n), 2);
-                    if (hit?.HitEntity is VRage.Game.ModAPI.IMyCubeGrid grid)
+                    if (hit?.HitEntity?.GetTopMostParent() is VRage.Game.ModAPI.IMyCubeGrid grid)
                     {
                         var slim = grid.GetCubeBlock(grid.WorldToGridInteger(hit.Position - n * 0.05));
                         string code = slim == null ? null : Hazard(slim);
@@ -121,12 +118,8 @@ namespace SEMcp.Core.Services
             double length = Vector3D.Distance(from, to);
             var hits = new List<VRage.Game.ModAPI.IHitInfo>();
             MyAPIGateway.Physics.CastRay(from + dir * skip, to - dir * skip, hits, (int)p.Number("layer", 30));
-            // ignoreId: look through one ship (all its grids), e.g. the ship whose landing spot is being checked.
-            var ignore = new HashSet<long>();
-            if (p["ignoreId"] != null && MyAPIGateway.Entities.GetEntityById(p.Id("ignoreId")) is VRage.Game.ModAPI.IMyCubeGrid ig)
-                foreach (var g in ig.GetGridGroup(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical)?.GetGrids(new List<VRage.Game.ModAPI.IMyCubeGrid>()) ?? new List<VRage.Game.ModAPI.IMyCubeGrid> { ig })
-                    ignore.Add(g.EntityId);
-            var hit = hits.FirstOrDefault(h => h.HitEntity == null || !ignore.Contains(h.HitEntity.EntityId));
+            var ignore = IgnoreSet(p);
+            var hit = hits.FirstOrDefault(h => !Ignored(h, ignore));
             // Rock first if it comes before any physics hit (asteroids away from ships have no physics to hit).
             var rock = dispatcher.Context.VoxelHit(from + dir * skip, to - dir * skip);
             if (rock != null && (hit == null || Vector3D.Distance(from, rock.Item2) < Vector3D.Distance(from, hit.Position)))
@@ -146,13 +139,14 @@ namespace SEMcp.Core.Services
                 };
             if (hit == null)
                 return new { clear = true, distance = Math.Round(length, 1) };
-            var entity = hit.HitEntity;
+            // A door leaf or turret barrel is a subpart: report the ship and the block it belongs to.
+            var entity = hit.HitEntity?.GetTopMostParent();
             string what = entity?.DisplayName ?? entity?.GetType().Name;
             object block = null;
             if (entity is VRage.Game.ModAPI.IMyCubeGrid grid)
             {
-                var cell = grid.WorldToGridInteger(hit.Position + dir * 0.05);
-                var slim = grid.GetCubeBlock(cell);
+                var part = PartOwner(hit.HitEntity);
+                var slim = part?.SlimBlock ?? grid.GetCubeBlock(grid.WorldToGridInteger(hit.Position + dir * 0.05));
                 if (slim != null)
                     block = new
                     {
@@ -174,6 +168,47 @@ namespace SEMcp.Core.Services
                     fromStart = Math.Round(Vector3D.Distance(from, hit.Position), 3),
                 },
             };
+        }
+
+        // ignoreId: look through one ship, everything that moves with it: its grids joined by rotors, pistons and
+        // hinges (with their door, turret and wheel subparts), and ships gear-locked onto it (cargo riding along).
+        // Not ships docked by connector, so ignoring a ship docked to a station doesn't hide the station.
+        private static HashSet<long> IgnoreSet(JsonObject p)
+        {
+            var ignore = new HashSet<long>();
+            if (p["ignoreId"] == null || !(MyAPIGateway.Entities.GetEntityById(p.Id("ignoreId")) is VRage.Game.ModAPI.IMyCubeGrid ig))
+                return ignore;
+            var ship = Mechanical(ig);
+            foreach (var g in ship)
+                ignore.Add(g.EntityId);
+            foreach (var other in ig.GetGridGroup(VRage.Game.ModAPI.GridLinkTypeEnum.Physical)?.GetGrids(new List<VRage.Game.ModAPI.IMyCubeGrid>()) ?? new List<VRage.Game.ModAPI.IMyCubeGrid>())
+            {
+                if (ignore.Contains(other.EntityId))
+                    continue;
+                bool riding = other.GetFatBlocks<SpaceEngineers.Game.ModAPI.IMyLandingGear>()
+                    .Any(gear => gear.IsLocked && gear.GetAttachedEntity()?.GetTopMostParent() is VRage.Game.ModAPI.IMyCubeGrid on && ignore.Contains(on.EntityId));
+                if (riding)
+                    foreach (var g in Mechanical(other))
+                        ignore.Add(g.EntityId);
+            }
+            return ignore;
+        }
+
+        private static List<VRage.Game.ModAPI.IMyCubeGrid> Mechanical(VRage.Game.ModAPI.IMyCubeGrid grid) =>
+            grid.GetGridGroup(VRage.Game.ModAPI.GridLinkTypeEnum.Mechanical)?.GetGrids(new List<VRage.Game.ModAPI.IMyCubeGrid>())
+            ?? new List<VRage.Game.ModAPI.IMyCubeGrid> { grid };
+
+        // Hits on a subpart (door leaf, turret barrel, wheel) count as the grid it's on.
+        private static bool Ignored(VRage.Game.ModAPI.IHitInfo h, HashSet<long> ignore) =>
+            h.HitEntity != null && ignore.Contains(h.HitEntity.GetTopMostParent().EntityId);
+
+        // The block a subpart belongs to, or null if the entity isn't a subpart.
+        private static VRage.Game.ModAPI.IMyCubeBlock PartOwner(VRage.ModAPI.IMyEntity e)
+        {
+            for (var x = e; x != null; x = x.Parent)
+                if (x is VRage.Game.ModAPI.IMyCubeBlock b)
+                    return b;
+            return null;
         }
 
         private void Log(string message) => dispatcher.Context.Log(message);

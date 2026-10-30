@@ -28,6 +28,17 @@ def test_pick_prefers_free_connectors_and_matches_names():
         docking.pick(cs, "Connector 9", True, "Red Ship")
 
 
+def test_placement_names_sides_from_the_cockpit():
+    # Cockpit looks along +z with +y up, so its right is -x.
+    frame = docking.ship_frame({"center": [0, 0, 0], "forward": [1, 0, 0], "up": [0, 1, 0], "right": [0, 0, -1],
+                                "cockpit": {"name": "Helm", "forward": [0, 0, 1], "up": [0, 1, 0]}})
+    assert frame["right"] == [-1, 0, 0]
+    assert docking.placement([-20, -6, -17], [-1, 0, 0], frame) == "faces right, 20 m right, 6 m down, 17 m back of center"
+    assert docking.facing([0.7, 0, 0.7], frame) == "forward-left"
+    station = docking.ship_frame({"center": [0, 0, 0], "forward": [0, 0, -1], "up": [0, 1, 0], "right": [1, 0, 0], "cockpit": None})
+    assert station["ref"] is None and docking.facing([-1, 0, 0], station) == "left"
+
+
 def test_status_text():
     r = {"gridName": "Red Fighter", "isStatic": False, "mergeBlocks": [],
          "connectors": [{"name": "Connector", "gridName": "Red Fighter", "size": "small", "working": True, "status": "Connected",

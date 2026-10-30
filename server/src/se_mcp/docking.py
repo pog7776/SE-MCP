@@ -200,15 +200,51 @@ def gear_face(gear: dict[str, Any]) -> Vec:
     return scale(gear["up"], -1)
 
 
-def status_text(r: dict[str, Any]) -> str:
+def ship_frame(m: dict[str, Any]) -> dict[str, Any]:
+    """Which way is forward/up/right on a ship, from grid.motion: the cockpit's view if it has one, else the grid's
+    own axes (stations). center is the middle of the ship's bounding box."""
+    cp = m.get("cockpit")
+    if cp:
+        return {"center": m["center"], "forward": cp["forward"], "up": cp["up"], "right": cross(cp["forward"], cp["up"]),
+                "ref": cp["name"]}
+    return {"center": m["center"], "forward": m["forward"], "up": m["up"], "right": m["right"], "ref": None}
+
+
+def facing(direction: Vec, frame: dict[str, Any]) -> str:
+    """'right', 'up', ... when a direction lies along one of the ship's axes, else the two nearest ('forward-left')."""
+    parts = []
+    for k, (axis, pos, neg) in enumerate((("forward", "forward", "back"), ("up", "up", "down"), ("right", "right", "left"))):
+        d = dot(direction, frame[axis])
+        parts.append((abs(d), k, pos if d > 0 else neg))
+    parts.sort(reverse=True)
+    if parts[0][0] > 0.95:
+        return parts[0][2]
+    return "-".join(p[2] for p in sorted(parts[:2], key=lambda p: p[1]))  # forward/back, then up/down, then left/right
+
+
+def placement(position: Vec, direction: Vec, frame: dict[str, Any]) -> str:
+    """Where a block sits on the ship (meters right/up/forward of the ship's center) and which way it faces."""
+    off = sub(position, frame["center"])
+    where = []
+    for axis, pos, neg in (("right", "right", "left"), ("up", "up", "down"), ("forward", "forward", "back")):
+        d = dot(off, frame[axis])
+        where.append(f"{abs(d):.0f} m {pos if d >= 0 else neg}")
+    return f"faces {facing(direction, frame)}, {', '.join(where)} of center"
+
+
+def status_text(r: dict[str, Any], frame: dict[str, Any] | None = None) -> str:
     lines = [f"{r['gridName']}{' (station)' if r['isStatic'] else ''} docking:"]
+    if frame:
+        lines[0] += f" (sides as seen from {frame['ref']})" if frame["ref"] else " (sides by the grid's own axes)"
     for c in r["connectors"]:
         where = f" on {c['gridName']}" if c["gridName"] != r["gridName"] else ""
         state = c["status"] if c["working"] else "NOT WORKING"
         to = f" to {c['other']['name']} on {c['other']['gridName']}" if c.get("other") else ""
-        lines.append(f"- {c['name']}{where} ({c['size']} connector): {state}{to}")
+        at = f"; {placement(c['position'], c['forward'], frame)}" if frame and "position" in c else ""
+        lines.append(f"- {c['name']}{where} ({c['size']} connector): {state}{to}{at}")
     for g in r["landingGear"]:
-        lines.append(f"- {g['name']} (landing gear): {g['mode']}{', auto-lock' if g['autoLock'] else ''}")
+        at = f"; {placement(g['position'], gear_face(g), frame)}" if frame and "position" in g else ""
+        lines.append(f"- {g['name']} (landing gear): {g['mode']}{', auto-lock' if g['autoLock'] else ''}{at}")
     for m in r["mergeBlocks"]:
         lines.append(f"- {m['name']} (merge block): {'merged' if m['connected'] else 'not merged'}{'' if m['enabled'] else ', off'}")
     if len(lines) == 1:
