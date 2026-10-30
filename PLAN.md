@@ -318,6 +318,59 @@ The rule: everything the assistant can do is useful in plain sandbox mode, and f
   - Optionally, the AI core lives in a specific block (see "In-world presence" under Later).
 - **Built in M7:** the tags only.
 
+#### Awareness system: one source of truth for what could be known
+
+Instead of each tool deciding on its own what it's allowed to see, a single awareness service (host side, Core) keeps a **contact table**. Fair mode makes every tool that looks outside the ship read the table instead of the world (`MyEntities`, `list_grids`'s scan, trackers).
+
+- **Contact:**
+  - entity id, kind (grid, character, meteor, missile, floating object, ore deposit, GPS point)
+  - name as known: the broadcast name, or "Unknown small grid" if only seen
+  - last known position and velocity
+  - relation, if known: you can't tell a ship's owner by looking, but its broadcast or a turret's targeting tells you
+  - **sources** (which sensors know it, and when each last saw it)
+  - first seen, last seen
+  - stale: true when no source has seen it for a while, so the position is only "last known"
+- **Sources** (each a small module, rate-limited and budgeted per frame like the rest of the queue):
+  - **Radio:** antenna and beacon broadcasts the player's or ship's antennas receive. These are the HUD signals that `radio.signals` already reads.
+    - A broadcast gives the name and exact position.
+    - Grids that don't broadcast are invisible to radio.
+  - **Relay network:** grids connected through the antenna network share what their own sensors know, including the base's sensors and the fighter's cameras.
+  - **Laser antenna link:** the connected grid is known.
+  - **Player eyes:** entities in the main camera's view, within view distance, big enough on screen (an angular-size threshold), and with line of sight (a few raycasts to the centre and corners, against grids and voxels). This is what the player could notice on screen.
+  - **Ship cameras:** the same view-and-line-of-sight test from each camera block's view, within a camera range.
+    - That range is a house rule: vanilla cameras only "see" while someone looks through them. Make it configurable; it could also require the camera to be on.
+    - Explicit `camera_scan` raycasts add the hit entity.
+  - **Sensors:** `IMySensorBlock` detected entities, within their field and filters.
+  - **Turrets and AI combat blocks:** their current targets. Turret targeting also reveals the relation: a turret only targets enemies, or whatever its settings allow.
+  - **Cockpit target lock:** the locked target.
+  - **Ore detectors:** HUD ore markers, as `ore_scan` reads them now.
+  - **Player knowledge:** the player's GPS list. It gives positions only, not what is there.
+  - **Memory:** contacts outlive their sources. They're kept as "last known" with a fading confidence and dropped after a configurable time.
+- **Two observers:**
+  - **Player:** eyes, the suit antenna/HUD signals, GPS.
+  - **AI:** the construct and network it lives on. With M10's in-world presence, that's the block the AI core sits in, plus that block's antenna network.
+  - Default assistant mode uses the union, because the assistant is helping the player. A strict "ship AI" mode uses the AI side only.
+- **Modes:**
+  - `sandbox`: today's behaviour, omniscient.
+  - `fair`: outside knowledge only from the contact table.
+  - Optional per-source switches, such as no camera house rule or radio only.
+  - Actions still check their link tag: remote control needs an antenna path to the ship.
+- **Who uses it:**
+  - `list_grids` and `contacts`: only contacts in fair mode, with "seen by Camera 3, 12 s ago".
+  - `hud_track` and HUD markers on things that aren't ours: only contacts. Stale ones are drawn dimmed at the last known position.
+  - Targeting and weapons: aim only at known contacts.
+  - Autopilot, docking, landing and `surface_map` on other ships: only ones we know about. Raycasts against unknown grids still physically hit them, but they count as "unknown obstacle".
+  - `ship_photo`/`camera_view`: they are already sensors themselves. They add what they see to the table.
+  - Companion alerts (M10): "new contact", "contact closing", "lost contact".
+- **Reporting:** every answer built from contacts says how it's known (radio, eyes, Camera 3, sensor, turret) and how fresh it is. The AI can then say "I saw it 40 s ago, it may have moved" instead of pretending to know.
+- **Debugging:** an awareness overlay (`hud_track` style) colours each contact by source and greys stale ones. An `awareness_explain(entity)` tool says why something is or isn't known.
+- **Build order:**
+  1. The contact table, radio, sensors and turrets, since those are cheap and exact.
+  2. Player eyes and cameras, the raycast budget, and memory/decay.
+  3. Switch the omniscient tools over (`list_grids`, `ship_photo`, `hud_track`).
+  4. Relay network, and AI-only observer mode.
+- **Tests:** sources are plain functions over a world snapshot, so the Python fake bridge can test the tools' fair-mode answers. The game side gets a manual checklist: a hidden ship behind an asteroid stays unknown until a camera or the player's eyes catch it.
+
 ### M10: Companion
 
 Goal: chat with the assistant from inside the game, privately, and have it speak up on its own when something needs attention.
@@ -347,7 +400,7 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
   - ✅ **HUD overlay** (pulled forward from M11, verified in game): `hud_draw` (text, boxes, bars, world markers pinned to a block/grid/position; upsert by id; `bind` to a read-only method keeps it live; `ttl`), `hud_ship_panel` (live H2/O2/battery/uranium/cargo/speed panel, bars go red when low), `hud_remove`, `hud_clear`, `hud_list`. A focus-less `MyGuiScreenBase` above the HUD, closed on host stop.
     - ✅ Lines, arrows (also pinned to a block/grid/position, sliding to the screen edge when it's off screen), circles, icons (named HUD/marker textures or any texture path), corner-bracket boxes round things, edge arrows for off-screen targets, and `hud_track` (live boxes round every meteor/missile/enemy/neutral/friend/ship/player in range, `incoming` filter, {eta} label). Verified in game.
     - Next: progress/countdown helpers, block/item icons from their definitions, a shared layout so panels don't overlap, and warnings that flash.
-    - Fair play (M8): markers on things the player can't sense should be filtered like `list_grids`.
+    - Fair play (M8): `hud_track` and markers on things that aren't ours read the awareness contact table in fair mode (see M8, "Awareness system"). Today they see everything in range.
   - Hot reload: open screens must be closed in `Stop()`.
   - Our own HUD drawing only. Text HUD API (workshop 758597413) was considered and dropped.
 - **Authoring new apps at runtime** (opt-in, off by default): an endpoint takes C# for a screen app, compiles it with the game's own script compiler against the mod whitelist (as for PBs and mods), registers it under a versioned id, and reports compiler errors like `write_pb_script`. It runs code inside the game, so it's gated in config and local only. MCP Display should cover most needs first.
