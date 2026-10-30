@@ -30,6 +30,11 @@ def _pos(p: dict[str, float] | None) -> str:
     return f"({p['x']:.0f}, {p['y']:.0f}, {p['z']:.0f})" if p else "?"
 
 
+def vec(v: list[float], digits: int = 1) -> str:
+    """[x, y, z] as "[1.2, -3.4, 5.6]", for coordinates a tool can take back."""
+    return "[" + ", ".join(f"{x:.{digits}f}" for x in v) + "]"
+
+
 def grid_line(g: dict[str, Any]) -> str:
     kind = "station" if g.get("isStatic") else f"{g.get('size')} ship"
     if not g.get("accessible", True):

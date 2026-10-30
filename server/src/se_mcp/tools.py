@@ -144,7 +144,24 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         block: name or id; grid narrows the name search (default: current ship)."""
         target = await resolve.block(bridge, block, grid)
         detail = await bridge.call("block.get", {"blockId": target["id"]})
-        return fmt.block_detail(detail, all_properties)
+        return fmt.block_detail(detail, all_properties) + await _where(detail)
+
+    async def _where(detail: dict[str, Any]) -> str:
+        """Where a block is and how it's turned: world position and axes, and its place on its ship."""
+        if "position" not in detail:
+            return ""
+        lines = [f"Position: {fmt.vec(detail['position'])} (world)"]
+        try:
+            frame = docking.ship_frame(await bridge.call("grid.motion", {"gridId": detail["block"]["gridId"]}))
+            seen = f"as seen from {frame['ref']}" if frame["ref"] else "by the grid's axes"
+            lines.append(f"On {detail['gridName']}: {docking.placement(detail['position'], detail['forward'], frame)} ({seen})")
+        except (BridgeError, KeyError):
+            pass
+        axes = ", ".join(f"{k} {fmt.vec(detail[k], 3)}" for k in ("forward", "up", "right") if k in detail)
+        lines.append(f"Axes (world): {axes}")
+        if detail.get("cell"):
+            lines.append(f"Grid cell: {tuple(detail['cell'])}, {detail.get('cellSize', 0):g} m cells")
+        return "\n" + "\n".join(lines)
 
     @tool
     async def looked_at() -> str:
@@ -1314,13 +1331,17 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
     @tool
     async def target_block(block: str, target_grid: str, weapons: str = "all", grid: str | None = None,
-                           fire: bool = False, miss_by_m: float = 0, max_rpm: float = 1.0, force: bool = False) -> str:
+                           fire: bool = False, miss_by_m: float = 0, offset_m: list[float] | None = None,
+                           offset_from: str = "block", max_rpm: float = 1.0, force: bool = False) -> str:
         """Aim at one block on another ship or station (its hydrogen tank, reactor, a turret...), not just the ship.
         weapons: "all", "turrets", "guns" (fixed: the ship turns to aim them) or comma-separated weapon names.
-        Turrets lead a moving target. Checks the line of fire first and says what a shot would hit first (armour in
-        front of the block is normal; another ship in the way stops a shot). fire=True fires one shot from each once
-        aimed. miss_by_m aims that many meters to the side of the block, for a warning shot that passes close by.
-        Firing needs allowWeapons in the plugin config."""
+        Turrets wait until they're on target and lead a moving target. Checks the line of fire first and says what a
+        shot would hit first (armour in front of the block is normal; another ship in the way stops a shot).
+        fire=True fires one shot from each weapon that's on target.
+        offset_m = [right, up, forward] meters aims at a point beside the block instead: in the block's own axes
+        (offset_from="block": a seat's forward is where its pilot looks) or its ship's (offset_from="ship", as that
+        ship's pilot sees it). E.g. 10 m in front of the pilot seat: offset_m=[0, 0, 10]. miss_by_m aims that many
+        meters to the side, across your line of fire, for a warning shot. Firing needs allowWeapons in the config."""
         from . import steering
 
         ship, r = await _weapons(grid)
@@ -1343,12 +1364,26 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
         frame = steering.frame_of(await bridge.call("grid.motion", {"gridId": ship["id"]}))
         aim = list(target)
+        where = ""
+        if offset_m:
+            if len(offset_m) != 3:
+                return "offset_m takes three numbers: [right, up, forward] in meters."
+            if offset_from == "ship":
+                axes = steering.frame_of(await bridge.call("grid.motion", {"gridId": info["block"]["gridId"]}))
+            else:
+                axes = {"forward": info["forward"], "up": info["up"],
+                        "right": info.get("right") or steering.cross(info["forward"], info["up"])}
+            shift = steering.to_world(offset_m, axes)
+            aim = [aim[i] + shift[i] for i in range(3)]
+            parts = [f"{abs(v):g} m {pos if v > 0 else neg}" for v, pos, neg in
+                     zip(offset_m, ("right", "up", "forward"), ("left", "down", "back")) if v]
+            where = f", aiming {', '.join(parts)} of it ({'its ship' if offset_from == 'ship' else 'its own'} axes)"
         if miss_by_m:
-            # Off to the shooter's side, across the line of fire, so the shot passes the block at that distance.
-            toward = [target[i] - frame["center"][i] for i in range(3)]
+            # Off to the shooter's side, across the line of fire, so the shot passes the point at that distance.
+            toward = [aim[i] - frame["center"][i] for i in range(3)]
             side = steering.cross(toward, frame["up"])
             side = steering.normalize(side if steering.length(side) > 1e-6 else steering.perpendicular(toward))
-            aim = [target[i] + side[i] * miss_by_m for i in range(3)]
+            aim = [aim[i] + side[i] * miss_by_m for i in range(3)]
 
         lines = []
         if guns:
@@ -1392,7 +1427,7 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             lines.append(f"{who} meet {what} first, {gap} m before {info['block']['name']}.")
 
         distance = steering.length([target[i] - frame["center"][i] for i in range(3)])
-        head = f"Target: {label}, {distance:.0f} m away" + (f", aiming {miss_by_m:g} m to the side" if miss_by_m else "")
+        head = f"Target: {label}, {distance:.0f} m away{where}" + (f", aiming {miss_by_m:g} m to the side" if miss_by_m else "")
         if fire:
             # Only what's on target and has a clear line: a shot fired mid-swing goes wherever the barrel points.
             shooters = [w for w in turrets + guns if w["name"] not in blocked and w["name"] not in not_on_target]

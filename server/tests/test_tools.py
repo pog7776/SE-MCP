@@ -87,3 +87,18 @@ async def test_every_tool_declares_fair_play_metadata():
     names = {t.name for t in await create_server(Bridge(port=1, token="x")).list_tools()}
     assert names - TOOLS.keys() == set(), "add these tools to se_mcp/fair.py"
     assert TOOLS.keys() - names == set(), "fair.py lists tools that no longer exist"
+
+
+async def test_inspect_block_shows_where_it_is_and_how_its_turned():
+    handlers = default_handlers()
+    get = handlers["block.get"]
+    handlers["block.get"] = lambda p: {**get(p), "position": [10.0, 2.0, -5.0], "forward": [0.0, 0.0, -1.0],
+                                       "up": [0.0, 1.0, 0.0], "right": [1.0, 0.0, 0.0], "cell": [4, 0, -2], "cellSize": 2.5}
+    handlers["grid.motion"] = lambda p: {"center": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0],
+                                         "right": [1.0, 0.0, 0.0], "cockpit": None}
+    async with FakeGame(handlers) as game:
+        text = await call_tool(create_server(Bridge(port=game.port, token=TOKEN)), "inspect_block", block="Battery")
+    assert "Position: [10.0, 2.0, -5.0] (world)" in text
+    assert "On Miner: faces forward, 10 m right, 2 m up, 5 m forward of center (by the grid's axes)" in text
+    assert "Axes (world): forward [0.000, 0.000, -1.000], up [0.000, 1.000, 0.000], right [1.000, 0.000, 0.000]" in text
+    assert "Grid cell: (4, 0, -2), 2.5 m cells" in text

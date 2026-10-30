@@ -267,7 +267,7 @@ class Runner:
     async def handle_chat(self, event: dict[str, Any]) -> None:
         text = (event.get("text") or "").strip()
         self.log(f"> {(event.get('context') or {}).get('player')} ({event.get('source')}): {text}")
-        if text.lower() in RESET_WORDS:
+        if text.lower().lstrip("/").strip() in RESET_WORDS:  # "/ai reset", "/ai /new"
             await self.brain.reset()
             await self.reply(event, "Fresh start. What do you need?")
             return

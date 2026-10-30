@@ -183,3 +183,16 @@ async def test_target_block_holds_fire_on_a_turret_that_cant_reach():
                                            "fire": True})
     assert "! Gatling Turret couldn't get on target (20 deg off: out of its arc or blocked)." in text
     assert "Held fire on Gatling Turret: not on target." in text and "Fired one shot" not in text
+
+
+async def test_target_block_aims_at_a_point_in_front_of_a_seat():
+    aimed: list[dict[str, Any]] = []
+    h = _target_handlers(None)
+    get = h["block.get"]
+    # A seat on the Whale facing +x (its pilot looks along world +x), up +y.
+    h["block.get"] = lambda p: {**get(p), "forward": [1.0, 0.0, 0.0], "up": [0.0, 1.0, 0.0], "right": [0.0, 0.0, 1.0]}
+    h["turret.aim"] = lambda p: aimed.append(p) or {"aimed": ["Gatling Turret"]}
+    text = await _call(h, "target_block", {"block": "98722443922007053", "target_grid": "Whale", "weapons": "turrets",
+                                           "offset_m": [0, 2, 10]})
+    assert "aiming 2 m up, 10 m forward of it (its own axes)" in text
+    assert aimed[0]["position"] == [10.0, 2.0, -300.0]
