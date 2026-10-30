@@ -326,7 +326,7 @@ Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the
     - ✅ `rotate_ship`: yaw/pitch/roll by degrees as the pilot sees it. Full-attitude control (`Steering.orient`, quaternion error, so 180 deg turns and pure rolls work), holding the other axes.
     - ✅ `point_ship`: point a side (forward/back/up/down/left/right) or the fixed guns ("guns" or a weapon's name, aimed from where they're mounted) at a ship, station, radio signal, GPS or coordinates. Roll left as is.
     - ✅ `dock` parks thrusters off once connected (`park_thrusters`, default on): leaving them on fights the carrier, as the Red Fighter showed.
-    - Tested on the simulated ship (awkward gyro mount) only; first live turn waits for a ship in open space.
+    - Verified live 2026-10-30: `point_ship` turned the Red Ship (80 m swing radius, two docked ships aboard) 124 deg at 1 rpm in 27 s to put its fixed Artillery on the Whale, ending 0.5 deg off.
     - Next: `level_ship` (up against gravity, for planets; needs gravity direction in `grid.motion`), a roll target for `point_ship` ("keep upright to the station"), `hold_heading`/track a moving target (re-point every second until told to stop, plugin-side loop from item 16), and a clearance sweep before turning (item 15's `path.sweep`, using the ship's swing radius).
     - Next, beyond rotation: `stop_ship` (kill all motion), `strafe`/`move_ship` by meters in the pilot's frame, `set_speed` for cruise, and a `ship_controls` summary (what's on/off, overrides, autopilot) so the AI can undo what it did.
 
