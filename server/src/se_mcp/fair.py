@@ -149,3 +149,12 @@ TOOLS.update({
     "hud_clear": Fairness("own", None),
     "hud_list": Fairness("own", None),
 })
+
+TOOLS.update({
+    "ai_soul": Fairness("own", None, "the companion's personality file; not game state"),
+    "write_ai_soul": Fairness("own", None, "writes the personality file outside the game"),
+    "watch": Fairness("own", None, "reads what its method reads; same fairness as that method"),
+    "list_watches": Fairness("own", None),
+    "remove_watch": Fairness("own", None),
+    "recent_events": Fairness("player", None, "chat the player sent and watches that fired"),
+})

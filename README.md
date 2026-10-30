@@ -75,16 +75,26 @@ The repo's [.mcp.json](.mcp.json) registers it for Claude Code in this folder. E
 
 Poke at it by hand with `npx @modelcontextprotocol/inspector`.
 
-## In-game chat
+## In-game companion
 
-Type `/ai <message>` in the game chat to talk to the assistant (only you see it; `/ai reset` starts a fresh conversation). Something has to answer, so run the chat runner while you play:
+Talk to the assistant from inside the game, two ways (only you see either):
+- **Chat:** type `/ai <message>` in the game chat. `/ai reset` starts a fresh conversation.
+- **Comms tab:** open the terminal's Comms tab and pick **-Suit AI-** in the list (it replaces the game's unused bot conversation). Type normally there; replies stay in that conversation.
+
+Something has to answer, so run the companion runner while you play (log the CLI in once with `claude auth login`):
 
 ```bash
 cd server
 uv run se-mcp-runner     # options: --model, --timeout, --claude <path to claude CLI>
 ```
 
-Each message starts a headless Claude Code turn (`claude -p`, on your Claude plan) with only this MCP server's tools, resuming one conversation (reset after 3 h idle). The reply comes back as a chat line from "Suit AI" on foot or "Ship AI" when seated. The runner keeps its state in `%AppData%\SpaceEngineers\SEMcp\runner\`.
+The runner keeps one headless Claude Code process open (on your Claude plan) with only this MCP server's tools, and one conversation (reset after 3 h idle). Replies come from "Suit AI" on foot or "Ship AI" when seated, unless you give it a name.
+
+**It speaks up on its own** through watches: "tell me when the Red Ship's hydrogen is below 20%" makes it add one. A watch re-reads a game value every few seconds and raises an event when its test becomes true; the AI then decides whether to tell you. Suit oxygen, hydrogen, energy and health warnings are there by default. Watches are kept in `%AppData%\SpaceEngineers\SEMcp\watches.json`.
+
+**Personality:** `%AppData%\SpaceEngineers\SEMcp\runner\SOUL.md` holds its name, personality, how it talks to you, and what it has learned about you. Edit the file, or just tell it ("/ai be grumpier", "/ai your name is Jarvis", "/ai call me Captain") and it rewrites the file itself. Changes apply from the next message, and old versions are kept in `old/`. The safety rules (short replies, asking before risky actions) live in the runner, so a personality edit can't remove them.
+
+The runner's other state (conversation id, the Claude process's stderr log) is in the same `runner` folder.
 
 ## Decompiled reference
 

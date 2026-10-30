@@ -178,9 +178,12 @@ def suit(status: dict[str, Any]) -> str:
     if not status.get("alive"):
         return "No living character (dead or respawning)."
     on_off = lambda v: "on" if v else "off"  # noqa: E731
+    # Null oxygen means the world has oxygen turned off.
+    oxygen = "oxygen off in this world" if status.get("oxygen") is None else f"oxygen {status['oxygen']}%"
+    air = "no oxygen system" if status.get("environmentOxygen") is None else f"{status['environmentOxygen']}% oxygen"
     return "\n".join([
-        f"Health {status['health']}, energy {status['energy']}%, oxygen {status['oxygen']}%, hydrogen {status['hydrogen']}%",
-        f"Outside air: {status['environmentOxygen']}% oxygen, gravity {status['gravityG']} g",
+        f"Health {status['health']}, energy {status['energy']}%, {oxygen}, hydrogen {status['hydrogen']}%",
+        f"Outside air: {air}, gravity {status['gravityG']} g",
         f"Jetpack {on_off(status['jetpack'])}, dampeners {on_off(status['dampeners'])}, "
         f"helmet {'closed' if status['helmet'] else 'open'}, lights {on_off(status['lights'])}",
         f"{status['movement']}, {status['speed']} m/s at {_pos(status.get('position'))}, inventory {status['inventoryFill']}% full",

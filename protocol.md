@@ -19,7 +19,7 @@ The protocol between the Python MCP server and the in-game plugin. Keep this in 
   "chatPrefix": "/ai" }
 ```
 
-`chatPrefix` empty turns in-game chat off (see `chat.poll`).
+`chatPrefix` empty turns in-game chat and the Comms tab Suit AI off (see "Companion methods").
 
 ## Messages (JSON-RPC 2.0)
 
@@ -84,7 +84,7 @@ A **construct** is a grid plus everything attached by rotors, pistons and hinges
 | Method | Params | Returns |
 |---|---|---|
 | `player.context` | — | `player`, `identityId`, `position`, `controlled` (`kind`, `blockId`, `blockName`, `gridId`, `gridName`, or `{kind:"Character"}`), `lookingAt` (camera ray, 200 m: `kind` grid/character/voxel/other, `distance`, and for grids `gridId`, `gridName`, `relation`, `block`), `nearestGrid` (closest usable grid within 50 m) |
-| `character.status` | — | `alive`, `health`, `energy`/`oxygen`/`hydrogen` %, `environmentOxygen` %, `jetpack`, `dampeners`, `helmet`, `lights`, `movement`, `position`, `speed`, `gravityG`, `inventoryFill` |
+| `character.status` | — | `alive`, `health`, `energy`/`oxygen`/`hydrogen` %, `environmentOxygen` % (`oxygen` and `environmentOxygen` are null when the world has oxygen off), `jetpack`, `dampeners`, `helmet`, `lights`, `movement`, `position`, `speed`, `gravityG`, `inventoryFill` |
 | `grids.list` | `range?` (m, capped at max), `includeAll?` | `range`, `grids[]`: usable grids get `id`, `name`, `size`, `isStatic`, `blocks`, `relation`, `position`, `distance`, `speed`, `constructId`, `dockedGroupId`, `accessible:true`. With `includeAll`, others get name/size/relation/distance and `accessible:false` |
 | `grid.get` | `gridId`, `includeSubgrids?`=true | `summary` (as in `grids.list`), `grids[]` in the construct, `docked[]`, `mass`, `power` (`batteries`, `producers[]` by type), `gas` (`hydrogen`, `oxygen` tank totals), `cargo` (cargo containers only), `damage` (`count`, worst 15 `blocks[]` with `missing` components), `functionalCount`, `terminalBlocks` |
 | `blocks.list` | `gridId`, `type?`, `nameContains?`, `group?`, `includeSubgrids?`=true, `limit?`=200, `offset?` | `total`, `offset`, `blocks[]`: `id`, `name`, `type`, `subtype`, `displayType`, `gridId`, `enabled` (null if it can't be switched), `functional`, `working`, `integrity`, `accessible`. `type` matches type id, subtype or display name, case-insensitive |
@@ -279,13 +279,6 @@ How it works (`CameraCapture.cs`):
 
 The approach comes from the CameraLCD plugin.
 
-`chat.poll` collects private chat for the assistant (`ChatInbox.cs`). The host hooks `MyAPIGateway.Utilities.MessageEntered` (unhooked in `Stop()`). A line that is the prefix, or starts with the prefix and a space, gets `sendToOthers = false`, is echoed back to the local chat (the game hides it otherwise) and is queued.
-- Params: `waitMs?` (0–30000, default 0): how long to wait when nothing is queued. Answered off the game thread.
-- Returns `prefix` and `messages[]`: `id`, `text` (without the prefix), `player`, `persona` (`ship` when seated in a cockpit/seat/RC, else `suit`), `ship?`, `shipId?`, `at` (UTC, ISO 8601).
-- If nobody has polled in the last ~75 s, the player is told to start the runner and nothing is queued. The bare prefix shows a help line. At most 20 messages wait.
-- `feature_disabled` when `chatPrefix` is empty.
-- Replies go back with `notify` (`kind: chat`). The runner (`se-mcp-runner`) is the intended poller: two pollers would split the messages.
-
 Params: `blockId` (a camera block, at its zoom), or `position` + `forward` (+ `up?`, `fovDegrees?`=70) for a free viewpoint within `maxRangeMeters`, or neither for the player's view without HUD. Optional: `width?`=1280 and `height?` (16:9 by default, max 1920 each), `fovDegrees?`, `format?` (`jpeg` or `png`).
 
 Returns `source`, `format`, `width`, `height`, `fovDegrees`, `position` and `image` (base64; the buffer may have trailing zero padding). It times out after 8 s if no frame renders, for example while the game is minimized. `allowScreenshots: false` turns it off (`feature_disabled`).
@@ -305,3 +298,27 @@ Returns `source`, `format`, `width`, `height`, `fovDegrees`, `position` and `ima
 | `grid.motion` | `gridId` | `center` and `radius` (bounding box of the construct), `cockpit` (`name`, `forward`, `up` of the main, occupied or first flight seat, else null), `isStatic`, `gravityG` (natural gravity), `forward`/`up`/`right` (world unit vectors), `angularVelocity` (rad/s), `linearVelocity` (m/s), `gyros[]`: `id`, `name`, `forward`/`up`/`right`, `overriding`, `working` |
 
 Gyro override properties (`Override`, `Pitch`, `Yaw`, `Roll` in RPM) are set with `block.set_property`. Their sign conventions relative to the gyro's axes aren't obvious, so the Python `steering` module measures them with a short test spin before turning.
+
+## Companion methods (host)
+
+Everything that wants the assistant's attention is one **event** (`EventHub.cs`): `id`, `type` (`chat`, `watch`), `source` (`chat`, `comms`, or the watched method), `at` (UTC, ISO 8601), `text`, `context` (`player`, `persona`: `ship` when seated in a cockpit/seat/RC, else `suit`; `ship?`, `shipId?`, `creative`), `data`.
+
+Event sources:
+- **Chat** (`ChatInbox.cs`): the host hooks `MyAPIGateway.Utilities.MessageEntered` (unhooked in `Stop()`). A line that is the prefix, or starts with the prefix and a space, gets `sendToOthers = false`, is echoed to the local chat (the game hides it otherwise) and becomes a `chat` event with `source: chat`. The bare prefix shows a help line.
+- **Comms tab** (`CommsChannel.cs`): Harmony patches on the internal `MyTerminalChatController` take over the bot conversation (`ChatChannel.ChatBot`), which nothing answers in this game version. `RefreshPlayerList` (postfix) renames its entry "-Suit AI-". `SendMessage` (prefix) turns what the player sends there into a `chat` event with `source: comms`, adds it to that conversation's history and skips the game's own send. A leading prefix (`/ai`) is dropped. Patches are removed in `Stop()`.
+- **Watches** (`Watches.cs`): `watch` events, below.
+
+If nobody has polled in the last ~75 s, chat and Comms messages are refused with a "start the runner" line. At most 50 events wait.
+
+| Method | Params | Returns |
+|---|---|---|
+| `events.poll` | `waitMs?` (0–30000, default 0): how long to wait when nothing is queued | `events[]`, taking them off the queue. Answered off the game thread. The runner (`se-mcp-runner`) is the intended poller: two pollers would split the events |
+| `events.recent` | `limit?`=20 (max 50), `type?` | `events[]`: the last ones raised, delivered or not, newest last |
+| `comms.post` | `text`, `sender?` (default "Suit AI"/"Ship AI") | `posted`. Adds a line to the Comms tab's Suit AI conversation and redraws it if it's open. `feature_disabled` when the Comms patch isn't active |
+| `watch.set` | `id`; `method` (one of the overlay's bindable read-only methods), `params?`, `path` (dotted, case-insensitive; array index or `length`), `op` (`<` `<=` `>` `>=` `==` `!=` `changed`), `value` (not for `changed`), `label?`, `note?`, `every?`=2 s (min 0.5), `cooldown?`=120 s, `once?`=false | `watch` (as in `watch.list`), `current`, `replaced`. Upsert by id: unset fields keep their values, and the edge state is kept. Reads once at set time, so a bad method/params/path fails here (`invalid_params`) |
+| `watch.remove` | `id` (`*` = all) | `removed` (count) |
+| `watch.list` | — | `watches[]`: the saved fields plus `current`, `active` (test true now), `fired` (count), `error`; `file` |
+
+Watches are evaluated on the game thread, at most 1 ms per frame, each every `every` s while a world is loaded. They're edge-triggered: a `watch` event when the test becomes true (numbers compare as numbers, otherwise case-insensitive text; a missing or null value never fires), then nothing until it has been false again and `cooldown` s have passed. `changed` fires on any change after the first read. `once` removes the watch after it fires. Event `text` is e.g. `Suit oxygen low: oxygen is 12 (< 20)`; `data` has `watch`, `label`, `method`, `params`, `path`, `op`, `threshold`, `value`, `previous`, `note`.
+
+They're saved in `watches.json` next to `config.json`. The first run writes defaults: suit oxygen < 20, hydrogen < 15, energy < 10, health < 40. `character.status` reports `oxygen` and `environmentOxygen` as null when the world has oxygen off, so those never fire there.

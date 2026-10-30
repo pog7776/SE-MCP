@@ -14,7 +14,7 @@ namespace SEMcp.Host
     internal static class OverlayMethods
     {
         // Read-only methods an element may bind to.
-        private static readonly HashSet<string> Bindable = new HashSet<string>
+        internal static readonly HashSet<string> Bindable = new HashSet<string>
         {
             "ship.hud", "grid.get", "grid.motion", "character.status", "player.context", "inventory.get", "production.get",
             "dock.get", "weapons.get", "sun.info", "environment.get", "sensors.get", "damage.get", "radio.antennas", "block.get",

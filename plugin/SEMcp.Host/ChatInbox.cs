@@ -1,36 +1,22 @@
 using System;
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Text.Json.Nodes;
-using System.Threading;
-using System.Threading.Tasks;
 using Sandbox.ModAPI;
-using SEMcp.Core;
-using VRage.Game.ModAPI;
 
 namespace SEMcp.Host
 {
     // Private in-game chat with the assistant: lines starting with the prefix (e.g. "/ai") never reach other players,
-    // and wait here until the runner collects them with chat.poll.
-    // The one game event the host subscribes to (the hot-reload rule in HostModule), so Stop() must unsubscribe.
+    // and become chat events on the hub for the runner to answer.
+    // One of the few game hooks the host makes (the hot-reload rule in HostModule), so Stop() must unsubscribe.
     internal sealed class ChatInbox
     {
-        // A runner that hasn't polled for this long is treated as gone, and messages are refused instead of queued.
-        private const int ListenerGraceMs = 45000;
-        private const int MaxWaitMs = 30000;
-        private const int MaxQueued = 20;
-
         private readonly string prefix;
+        private readonly EventHub hub;
         private readonly Action<string> log;
-        private readonly ConcurrentQueue<JsonObject> pending = new ConcurrentQueue<JsonObject>();
-        private readonly SemaphoreSlim arrived = new SemaphoreSlim(0);
-        private readonly Stopwatch sincePoll = new Stopwatch();
-        private long nextId;
         private bool subscribed;
 
-        public ChatInbox(string prefix, Action<string> log)
+        public ChatInbox(string prefix, EventHub hub, Action<string> log)
         {
             this.prefix = prefix.Trim();
+            this.hub = hub;
             this.log = log;
         }
 
@@ -46,37 +32,6 @@ namespace SEMcp.Host
             if (subscribed)
                 MyAPIGateway.Utilities.MessageEntered -= OnMessage;
             subscribed = false;
-            arrived.Release();
-        }
-
-        // Background thread. Waits up to waitMs for a message, then returns everything queued.
-        public async Task<JsonNode> Poll(JsonObject p)
-        {
-            lock (sincePoll)
-                sincePoll.Restart();
-            int wait = (int)Math.Max(0, Math.Min((p ?? new JsonObject()).Number("waitMs", 0), MaxWaitMs));
-            if (pending.IsEmpty && wait > 0)
-                await arrived.WaitAsync(wait).ConfigureAwait(false);
-            lock (sincePoll)
-                sincePoll.Restart();
-
-            var messages = new JsonArray();
-            while (pending.TryDequeue(out var message))
-                messages.Add(message);
-            // Signals for messages taken now, so the next poll waits instead of waking to nothing.
-            while (arrived.Wait(0))
-            {
-            }
-            return new JsonObject { ["prefix"] = prefix, ["messages"] = messages };
-        }
-
-        private bool Listening
-        {
-            get
-            {
-                lock (sincePoll)
-                    return sincePoll.IsRunning && sincePoll.ElapsedMilliseconds < ListenerGraceMs + MaxWaitMs;
-            }
         }
 
         // Game thread (the chat screen).
@@ -93,7 +48,12 @@ namespace SEMcp.Host
 
             try
             {
-                Accept(trimmed.Substring(prefix.Length).Trim());
+                string body = trimmed.Substring(prefix.Length).Trim();
+                // Keeping it private also hides it from the local chat, so echo it back.
+                MyAPIGateway.Utilities.ShowMessage(MyAPIGateway.Session?.Player?.DisplayName ?? "You", $"{prefix} {body}".TrimEnd());
+                string refusal = Submit(hub, body, "chat", prefix);
+                if (refusal != null)
+                    MyAPIGateway.Utilities.ShowMessage(AiName(), refusal);
             }
             catch (Exception e)
             {
@@ -101,45 +61,18 @@ namespace SEMcp.Host
             }
         }
 
-        private void Accept(string body)
+        public static string AiName() => (string)EventHub.Context()["persona"] == "ship" ? "Ship AI" : "Suit AI";
+
+        // Game thread. Queues a player's message as a chat event; returns what to tell the player instead, if anything.
+        public static string Submit(EventHub hub, string body, string source, string prefix)
         {
-            var player = MyAPIGateway.Session?.Player;
-            string name = player?.DisplayName ?? "You";
-            // Keeping it private also hides it from the local chat, so echo it back.
-            MyAPIGateway.Utilities.ShowMessage(name, $"{prefix} {body}".TrimEnd());
-
-            var controlled = MyAPIGateway.Session?.ControlledObject;
-            var seat = controlled as IMyCubeBlock;
-            string persona = seat != null ? "ship" : "suit";
-            string ai = persona == "ship" ? "Ship AI" : "Suit AI";
-
             if (body.Length == 0)
-            {
-                MyAPIGateway.Utilities.ShowMessage(ai, $"Type '{prefix}' and a message to talk to me. '{prefix} reset' starts a fresh conversation.");
-                return;
-            }
-            if (!Listening)
-            {
-                MyAPIGateway.Utilities.ShowMessage(ai, "Nobody is listening: start the runner (uv run se-mcp-runner in SE-MCP/server).");
-                return;
-            }
-            if (pending.Count >= MaxQueued)
-            {
-                MyAPIGateway.Utilities.ShowMessage(ai, "Still working through earlier messages; try again in a moment.");
-                return;
-            }
-
-            pending.Enqueue(new JsonObject
-            {
-                ["id"] = Interlocked.Increment(ref nextId),
-                ["text"] = body,
-                ["player"] = name,
-                ["persona"] = persona,
-                ["ship"] = seat?.CubeGrid?.CustomName,
-                ["shipId"] = seat?.CubeGrid?.EntityId.ToString(),
-                ["at"] = DateTime.UtcNow.ToString("o"),
-            });
-            arrived.Release();
+                return $"Type '{prefix}' and a message to talk to me. '{prefix} reset' starts a fresh conversation.";
+            if (!hub.Listening)
+                return "Nobody is listening: start the runner (uv run se-mcp-runner in SE-MCP/server).";
+            if (hub.Publish("chat", source, body) == null)
+                return "Still working through earlier messages; try again in a moment.";
+            return null;
         }
     }
 }

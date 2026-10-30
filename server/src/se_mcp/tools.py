@@ -13,6 +13,7 @@ from mcp.server.mcpserver import Image, MCPServer
 from . import autopilot
 from . import build
 from . import combat
+from . import companion
 from . import docking
 from . import forecast as forecast_mod
 from . import format as fmt
@@ -40,7 +41,9 @@ INSTRUCTIONS = (
     "Before writing a programmable block script, read the se://pb-primer resource. "
     "Ships can have notes (an AGENTS.md per ship: custom scripts like cruise control, odd layouts, habits). Read "
     "them with ship_notes before operating a ship, and when you learn something about a ship that the next agent "
-    "would otherwise have to rediscover, add it with write_ship_notes."
+    "would otherwise have to rediscover, add it with write_ship_notes. "
+    "To be told when something happens later (fuel low, a door opens, docking), add a watch; the in-game AI is "
+    "called back when it fires. The in-game AI's personality is in ai_soul / write_ai_soul."
 )
 
 
@@ -1483,6 +1486,69 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         path = notes_mod.write(name, text, append=append)
         reminders.seen(name)
         return f"{'Added to' if append else 'Saved'} the notes for {name} ({path})."
+
+    # --- The in-game companion: its soul, watches (callbacks) and events. ---
+
+    @tool
+    async def ai_soul() -> str:
+        """The in-game AI's soul (SOUL.md): its name, personality, how it talks, and what it has learned about the
+        player. Read it before changing it with write_ai_soul."""
+        return f"{companion.read_soul().rstrip()}\n\n(File: {companion.soul_path()})"
+
+    @tool
+    async def write_ai_soul(text: str, append: bool = False) -> str:
+        """Change the in-game AI's personality (SOUL.md, markdown) when the player asks ("be grumpier", "call me
+        Captain", "your name is Jarvis") or tells you a lasting preference. Read ai_soul first and keep what they
+        didn't ask to change; a 'Name: ...' line sets the name shown in chat. append=False replaces the file,
+        append=True adds a section. The old version is kept. It applies from the next message."""
+        path = companion.write_soul(text, append=append)
+        return f"Soul {'updated' if append else 'saved'} ({path}). It applies from the next message."
+
+    @tool
+    async def watch(id: str, method: str | None = None, path: str | None = None, op: str | None = None,
+                    value: Any = None, label: str | None = None, note: str | None = None,
+                    params: dict[str, Any] | None = None, every: float | None = None, cooldown: float | None = None,
+                    once: bool | None = None) -> str:
+        """Ask the game to call you back when something happens: a watch re-reads a read-only plugin method every
+        `every` s (default 2), picks `path` from its result and tests it with `op` (< <= > >= == != changed) against
+        `value`. When the test becomes true, the in-game AI gets an event (with your `note`: what you meant to do)
+        and decides whether to tell the player; it fires again only after the test was false and `cooldown` s
+        (default 120) passed. `once` removes it after firing. Same id updates a watch (unset fields kept).
+        Methods: character.status (suit: oxygen, hydrogen, energy, health %), ship.hud (params {gridId}:
+        hydrogen.fill, batteries.storedMWh, reactors.uraniumKg, cargo.fill, speed, damaged, docked.length...),
+        grid.get, grid.motion, player.context, inventory.get, production.get, dock.get, weapons.get, sun.info,
+        environment.get, sensors.get, damage.get, radio.antennas, block.get. Look at a method's result first
+        (e.g. ship_hud) to pick the path. Watches are saved and survive restarts."""
+        p: dict[str, Any] = {"id": id}
+        for key, v in (("method", method), ("path", path), ("op", op), ("label", label), ("note", note),
+                       ("params", params), ("every", every), ("cooldown", cooldown), ("once", once)):
+            if v is not None:
+                p[key] = v
+        if value is not None:
+            p["value"] = value
+        r = await bridge.call("watch.set", p)
+        current = r.get("current")
+        return (f"{'Updated' if r.get('replaced') else 'Added'} watch:\n{companion.watch_line(r['watch'])}"
+                + (f"\nCurrent value: {current}" if current is not None else ""))
+
+    @tool
+    async def list_watches() -> str:
+        """The watches that call the in-game AI back (what they test, current value, whether active, errors)."""
+        return companion.watches_text(await bridge.call("watch.list", {}))
+
+    @tool
+    async def remove_watch(id: str) -> str:
+        """Remove a watch by id ('*' removes all, including the default suit warnings)."""
+        r = await bridge.call("watch.remove", {"id": id})
+        return f"Removed {r['removed']} watch{'es' if r['removed'] != 1 else ''}."
+
+    @tool
+    async def recent_events(limit: int = 20, type: str | None = None) -> str:
+        """The last events the game raised for the AI (chat messages, watches firing), newest last."""
+        p: dict[str, Any] = {"limit": limit}
+        if type:
+            p["type"] = type
+        return companion.events_text(await bridge.call("events.recent", p))
 
     # --- Docking: connectors, landing gear, and flying a connector onto another. ---
 

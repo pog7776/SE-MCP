@@ -187,9 +187,10 @@ namespace SEMcp.Core.Services
                 alive = !character.IsDead,
                 health = Math.Round((character as IMyDestroyableObject)?.Integrity ?? 0, 1),
                 energy = Math.Round(character.SuitEnergyLevel * 100, 1),
-                oxygen = Math.Round(character.OxygenLevel * 100, 1),
+                // Null when the world has oxygen off: the suit then reads 0, which isn't a real shortage.
+                oxygen = MyAPIGateway.Session.SessionSettings.EnableOxygen ? Math.Round(character.OxygenLevel * 100, 1) : (double?)null,
                 hydrogen = Math.Round(character.GetSuitGasFillLevel(Hydrogen) * 100, 1),
-                environmentOxygen = Math.Round(character.EnvironmentOxygenLevel * 100, 1),
+                environmentOxygen = MyAPIGateway.Session.SessionSettings.EnableOxygen ? Math.Round(character.EnvironmentOxygenLevel * 100, 1) : (double?)null,
                 jetpack = character.EnabledThrusts,
                 dampeners = character.EnabledDamping,
                 helmet = character.EnabledHelmet,

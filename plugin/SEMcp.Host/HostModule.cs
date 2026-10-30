@@ -11,8 +11,8 @@ namespace SEMcp.Host
 {
     // Created by the loader on every (re)load. Owns the config, the TCP server and the game-thread queue.
     // Rule that keeps hot reload safe: never subscribe to game events or register anything with the game;
-    // everything reaches the game through the queue drained in Update(). The exception is ChatInbox, which hooks
-    // chat in Start() and unhooks it in Stop().
+    // everything reaches the game through the queue drained in Update(). The exceptions (ChatInbox's chat hook,
+    // CommsChannel's and CameraCapture's Harmony patches) are undone in Stop().
     public sealed class HostModule : IHostModule
     {
         private const double FrameBudgetMs = 2;
@@ -23,7 +23,10 @@ namespace SEMcp.Host
         private Dispatcher dispatcher;
         private TcpServer server;
         private CameraCapture capture;
+        private EventHub events;
+        private Watches watches;
         private ChatInbox chat;
+        private CommsChannel comms;
 
         public void Start(ILoaderContext context)
         {
@@ -56,11 +59,24 @@ namespace SEMcp.Host
             ToolbarMethods.Register(dispatcher);
             OverlayMethods.Register(dispatcher);
             StartCapture();
+
+            events = new EventHub();
+            watches = new Watches(events, dispatcher, Log);
+            watches.Register();
+            watches.Load();
             if (!string.IsNullOrWhiteSpace(config.ChatPrefix))
             {
-                chat = new ChatInbox(config.ChatPrefix, Log);
+                chat = new ChatInbox(config.ChatPrefix, events, Log);
                 chat.Start();
+                StartComms();
             }
+            dispatcher.Register("comms.post", p =>
+            {
+                if (comms == null)
+                    throw new RpcException(ErrorKind.FeatureDisabled, "The Comms tab Suit AI is off");
+                CommsChannel.Post(p.String("sender"), p.String("text", required: true));
+                return new { posted = true };
+            });
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);
             server.Start();
@@ -69,6 +85,14 @@ namespace SEMcp.Host
         public void Update()
         {
             queue.Drain(FrameBudgetMs);
+            try
+            {
+                watches?.Tick();
+            }
+            catch (Exception e)
+            {
+                Log($"Watches failed: {e}");
+            }
         }
 
         public void Stop()
@@ -76,6 +100,10 @@ namespace SEMcp.Host
             server?.Stop();
             chat?.Stop();
             chat = null;
+            comms?.Dispose();
+            comms = null;
+            watches = null;
+            events?.Close();
             HostMethods.ClearAllHighlights();
             OverlayMethods.Close();
             capture?.Dispose();
@@ -96,11 +124,11 @@ namespace SEMcp.Host
                     return Task.FromResult<JsonNode>(new JsonObject { ["reloading"] = true });
                 case "camera.capture":
                     return CaptureMethod.Run(parameters, dispatcher, queue, capture, config.AllowScreenshots);
-                case "chat.poll":
+                case "events.poll":
                     // Long poll, so it waits here rather than on the game thread.
-                    if (chat == null)
-                        throw new RpcException(ErrorKind.FeatureDisabled, "In-game chat is off (chatPrefix is empty in config.json)");
-                    return chat.Poll(parameters);
+                    return events.Poll(parameters);
+                case "events.recent":
+                    return Task.FromResult(events.Recent(parameters));
             }
 
             return queue.Run(() => Rpc.ToNode(dispatcher.Dispatch(method, parameters)));
@@ -133,6 +161,21 @@ namespace SEMcp.Host
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private CameraCapture CreateCapture() => new CameraCapture(Log);
+
+        // Also touches Harmony, so it runs after StartCapture registered ResolveLoaded.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private void StartComms()
+        {
+            try
+            {
+                comms = new CommsChannel(events, config.ChatPrefix.Trim());
+                Log("Comms tab: the bot conversation is now the Suit AI");
+            }
+            catch (Exception e)
+            {
+                Log($"Comms tab Suit AI unavailable: {e.Message}");
+            }
+        }
 
         private void Log(string message) => loader.Log(message);
     }
