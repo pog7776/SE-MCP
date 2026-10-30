@@ -285,6 +285,7 @@ Remaining items, reordered by value for effort, quick wins first and docking las
     - Next: land on landing gear (gear face square to a surface), and the big Red Ship onto the base (same pilot, gentler limits).
 
 13. ✅ **Ship HUD** (`ship_hud`): one ship's systems at a glance for agents, ship-only (docked ships separate), subgrids with their rotor/hinge/piston joint and state, and warnings (thrusters off, dampeners off, recharge-only batteries, no fuel, overrides active...). Later: deeper subgrid tools (move a rotor/hinge/piston to an angle or extension, list blocks per subgrid).
+13b. ✅ **Ship notes** (`ship_notes`, `write_ship_notes`): a per-ship AGENTS.md of scripts and quirks (e.g. the Red Ship's cruise script, which disables reverse thrusters so autopilot can't brake). Files in `%AppData%\SpaceEngineers\SEMcp\ships\`, matched by name, old versions kept. `se_status`/`ship_hud` flag unread notes; flight tools stop once until they're read.
 
 14. **Landing on gear + surface measuring** (in progress):
     - ✅ `surface_map`: height map of a grid face in one game-side scan (`surface.scan`, ~4000 rays in 0.05 s), with hazard letters (T thruster, X weapon, D/G/W tools, H doors, M joints).

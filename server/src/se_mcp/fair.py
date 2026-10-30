@@ -132,6 +132,8 @@ TOOLS.update({
 
 TOOLS.update({
     "ship_hud": Fairness("own", None, "other ships: needs antenna link"),
+    "ship_notes": Fairness("own", None, "notes the player and agents wrote; not game state"),
+    "write_ship_notes": Fairness("own", None, "writes a notes file outside the game"),
 })
 
 TOOLS.update({

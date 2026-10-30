@@ -18,6 +18,7 @@ from . import forecast as forecast_mod
 from . import format as fmt
 from . import hud as hud_mod
 from . import items as items_mod
+from . import notes as notes_mod
 from . import ore as ore_mod
 from . import organizer
 from . import overlay as overlay_mod
@@ -36,7 +37,10 @@ INSTRUCTIONS = (
     "Start with se_status to see whether the game is running and what the player is in or looking at. "
     "Grid and block arguments take a name (fuzzy matched) or an id; leaving `grid` empty means the ship "
     "the player is controlling or standing in. Use screenshot to see what the player sees. "
-    "Before writing a programmable block script, read the se://pb-primer resource."
+    "Before writing a programmable block script, read the se://pb-primer resource. "
+    "Ships can have notes (an AGENTS.md per ship: custom scripts like cruise control, odd layouts, habits). Read "
+    "them with ship_notes before operating a ship, and when you learn something about a ship that the next agent "
+    "would otherwise have to rediscover, add it with write_ship_notes."
 )
 
 
@@ -58,6 +62,7 @@ def _friendly_errors(tool: Callable[..., Awaitable[Any]]) -> Callable[..., Await
 def create_server(bridge: Bridge | None = None) -> MCPServer:
     bridge = bridge or Bridge()
     server = MCPServer("space-engineers", instructions=INSTRUCTIONS)
+    reminders = notes_mod.Reminders()
 
     def tool(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
         # Text and images only; no structured output schema (it chokes on mixed text + image lists).
@@ -81,7 +86,12 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
         lines.append(f"World: {info.get('world')} ({info.get('onlineMode')})")
         lines.append(f"Player: {info.get('player') or 'unknown'}")
-        lines.append(fmt.context(await bridge.call("player.context")))
+        context = await bridge.call("player.context")
+        lines.append(fmt.context(context))
+        for g in (context.get("controlled"), context.get("nearestGrid")):
+            line = reminders.line((g or {}).get("gridName"))
+            if line and line not in lines:
+                lines.append(line)
         return "\n".join(lines)
 
     @tool
@@ -1065,6 +1075,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         speed_limit in m/s. precision slows down for an exact stop (docking). The ship flies nose-first
         (the RC's leading face is set to match the cockpit). remote_control: needed only if there are several."""
         rc = await autopilot.remote_control(bridge, remote_control, grid)
+        if stop := reminders.gate(rc["gridName"]):
+            return stop
         name, coords = await autopilot.resolve_target(bridge, target)
         rc = await bridge.call("rc.fly_to", {
             "blockId": rc["id"], "target": coords, "name": name, "speedLimit": speed_limit,
@@ -1431,12 +1443,46 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         it; docked_too adds a line for each of those."""
         target = await resolve.grid(bridge, grid)
         h = await bridge.call("ship.hud", {"gridId": target["id"]})
-        text = hud_mod.hud_text(h)
+        text = reminders.prefix(h["name"], hud_mod.hud_text(h))
         if docked_too:
             for d in h["docked"]:
                 other = await bridge.call("ship.hud", {"gridId": d["shipId"]})
-                text += "\n\n" + hud_mod.hud_text(other)
+                text += "\n\n" + reminders.prefix(other["name"], hud_mod.hud_text(other))
         return text
+
+    # --- Ship notes: a per-ship AGENTS.md of scripts and quirks. ---
+
+    async def _ship_name(grid: str | None) -> str:
+        target = await resolve.grid(bridge, grid)
+        if target.get("name"):
+            return target["name"]
+        listing = await bridge.call("grids.list", {})
+        return next((g["name"] for g in listing["grids"] if str(g["id"]) == target["id"]), target["id"])
+
+    @tool
+    async def ship_notes(grid: str | None = None) -> str:
+        """A ship's notes (its AGENTS.md): what an agent must know to operate it, such as custom scripts that change
+        how it flies (cruise control, auto-docking...), how to switch them on and off, odd block layouts and the
+        player's habits with it. Read before flying or reconfiguring a ship. Ships docked to it have their own."""
+        name = await _ship_name(grid)
+        reminders.seen(name)
+        text = notes_mod.read(name)
+        if text is None:
+            return (f"No notes for {name} yet. If you find something about it the next agent would have to "
+                    "rediscover (a script, an oddity), save it with write_ship_notes.")
+        return f"{text.rstrip()}\n\n(File: {notes_mod.path_for(name)})"
+
+    @tool
+    async def write_ship_notes(text: str, grid: str | None = None, append: bool = True) -> str:
+        """Save notes about a ship for future agents (its AGENTS.md, markdown), matched to the ship by name.
+        Write what's unique and non-obvious: scripts and how to work them (arguments, how to tell their state, how
+        they interfere with autopilot or thrusters), odd layouts, things that went wrong and how to avoid them.
+        Not live status, which tools already show. append=True adds a section; append=False replaces everything
+        (read ship_notes first). The old version is kept."""
+        name = await _ship_name(grid)
+        path = notes_mod.write(name, text, append=append)
+        reminders.seen(name)
+        return f"{'Added to' if append else 'Saved'} the notes for {name} ({path})."
 
     # --- Docking: connectors, landing gear, and flying a connector onto another. ---
 
@@ -1468,6 +1514,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                      and (not connector or connector.lower() in c["name"].lower())]
         if not connected:
             return f"{status['gridName']} isn't docked" + (f" by '{connector}'" if connector else "") + "."
+        if back_off_m > 0 and (stop := reminders.gate(status["gridName"])):
+            return stop
         lines = []
         m = await bridge.call("grid.motion", {"gridId": target["id"], "thrusters": True})
         if m["thrusters"] and not any(t["working"] for t in m["thrusters"]):
@@ -1513,6 +1561,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         ship = await resolve.grid(bridge, grid)
         other = await resolve.grid(bridge, target)
         mine = await bridge.call("dock.get", {"gridId": ship["id"]})
+        if stop := reminders.gate(mine["gridName"]):
+            return stop
         theirs = await bridge.call("dock.get", {"gridId": other["id"]})
         try:
             c = docking.pick([x for x in mine["connectors"] if x["status"] != "Connected"], connector, True, mine["gridName"])
@@ -1596,6 +1646,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         ship = await resolve.grid(bridge, grid)
         target = await resolve.grid(bridge, on)
         mine = await bridge.call("dock.get", {"gridId": ship["id"]})
+        if stop := reminders.gate(mine["gridName"]):
+            return stop
         gears = [g for g in mine["landingGear"] if g["working"]]
         if not gears:
             return f"{mine['gridName']} has no working landing gear or magnetic plates."
