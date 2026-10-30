@@ -6,6 +6,7 @@ import asyncio
 import functools
 import math
 import re
+import time
 from typing import Any, Awaitable, Callable
 
 from mcp.server.mcpserver import Image, MCPServer
@@ -1251,6 +1252,47 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         result = await steering.point_ship(bridge, ship["id"], point, local, origin, max_rpm=max_rpm, force=force)
         return f"Pointing {what} at {name}: {result}"
 
+    async def _acquire(ship_id: str, turrets: list[dict[str, Any]], aim: list[float], moving: bool,
+                       timeout_s: float = 12) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+        """Wait for turrets to swing onto a point: (name, seconds) for those on target, (name, degrees off) for those
+        that couldn't get there (out of their arc, blocked, or still slewing when time ran out)."""
+        from . import steering
+
+        tolerance = 4.0 if moving else 1.5  # leading a moving target points the barrel ahead of it
+        start = time.monotonic()
+        on: dict[str, float] = {}
+        best: dict[str, tuple[float, float]] = {}  # name -> (degrees off, when it last improved)
+        while True:
+            now = time.monotonic() - start
+            r = await bridge.call("weapons.get", {"gridId": ship_id})
+            state = {w["id"]: w for w in r["weapons"]}
+            for t in turrets:
+                if t["name"] in on:
+                    continue
+                w = state.get(t["id"], t)
+                if not w.get("aimDirection"):
+                    continue
+                off = math.degrees(steering.angle_between(w["aimDirection"], [aim[i] - w["position"][i] for i in range(3)]))
+                if off < tolerance:
+                    on[t["name"]] = now
+                elif off < best.get(t["name"], (999.0, 0.0))[0] - 0.2:
+                    best[t["name"]] = (off, now)
+            waiting = [t for t in turrets if t["name"] not in on]
+            # Done when all are on target, or the rest have stopped getting closer for a couple of seconds.
+            stalled = all(now - best.get(t["name"], (0, now))[1] > 2.5 for t in waiting)
+            if not waiting or (stalled and now > 3) or now > timeout_s:
+                return sorted(on.items(), key=lambda x: x[1]), [(t["name"], best.get(t["name"], (180.0, 0))[0]) for t in waiting]
+            await asyncio.sleep(0.4)
+
+    def _acquisition_lines(on: list[tuple[str, float]], off: list[tuple[str, float]]) -> list[str]:
+        lines = []
+        if on:
+            slowest = max(s for _, s in on)
+            lines.append(f"On target: {_names([{'name': n} for n, _ in on], 6)} (within {slowest:.1f} s).")
+        for name, degrees in off:
+            lines.append(f"! {name} couldn't get on target ({degrees:.0f} deg off: out of its arc or blocked).")
+        return lines
+
     def _block_label(b: dict[str, Any]) -> str | None:
         """A hit block's name; armour has none, so "MyObjectBuilder_CubeBlock/HalfArmorBlock" -> "Half Armor Block"."""
         name = b.get("name") or b.get("type")
@@ -1313,11 +1355,15 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             local, origin = _gun_frame(guns, frame)
             lines.append(f"{_names(guns)}: " + await steering.point_ship(bridge, ship["id"], aim, local, origin,
                                                                         max_rpm=max_rpm, force=force))
+        not_on_target: list[str] = []
         if turrets:
-            aimed = (await bridge.call("turret.aim", {"blockIds": [w["id"] for w in turrets], "position": aim,
-                                                     "velocity": velocity}))["aimed"]
+            await bridge.call("turret.aim", {"blockIds": [w["id"] for w in turrets], "position": aim, "velocity": velocity})
             moving = steering.length(velocity)
-            lines.append(f"Aimed {', '.join(aimed)}" + (f", leading it at {moving:.0f} m/s." if moving > 0.5 else "."))
+            if moving > 0.5:
+                lines.append(f"Leading it at {moving:.0f} m/s.")
+            on, off = await _acquire(ship["id"], turrets, aim, moving > 0.5)
+            lines += _acquisition_lines(on, off)
+            not_on_target = [name for name, _ in off]
 
         # What would each shooter hit first?
         r = await bridge.call("weapons.get", {"gridId": ship["id"]})
@@ -1348,12 +1394,15 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         distance = steering.length([target[i] - frame["center"][i] for i in range(3)])
         head = f"Target: {label}, {distance:.0f} m away" + (f", aiming {miss_by_m:g} m to the side" if miss_by_m else "")
         if fire:
-            shooters = [w for w in turrets + guns if w["name"] not in blocked]
+            # Only what's on target and has a clear line: a shot fired mid-swing goes wherever the barrel points.
+            shooters = [w for w in turrets + guns if w["name"] not in blocked and w["name"] not in not_on_target]
             if shooters:
                 fired = (await bridge.call("weapon.fire", {"blockIds": [w["id"] for w in shooters], "mode": "once"}))["fired"]
                 lines.append(f"Fired one shot from {', '.join(fired)}.")
             if blocked:
                 lines.append(f"Held fire on {', '.join(blocked)}: something else is in the way.")
+            if not_on_target:
+                lines.append(f"Held fire on {', '.join(not_on_target)}: not on target.")
         return head + ".\n" + "\n".join(lines)
 
     @server.tool(structured_output=False)
@@ -1515,12 +1564,20 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         else:
             return "Give `at` (GPS or coordinates) or azimuth_deg/elevation_deg."
         aimed = (await bridge.call("turret.aim", params))["aimed"]
-        return f"Aimed {', '.join(aimed)} {what}."
+        text = f"Aimed {', '.join(aimed)} {what}."
+        guns = [w for w in chosen if w["kind"] == "turret"]
+        if "position" in params and guns:
+            # Turrets take a few seconds to swing round; say when they're really on target (fire after that).
+            on, off = await _acquire(ship["id"], guns, params["position"], "velocity" in params)
+            text += "\n" + "\n".join(_acquisition_lines(on, off))
+        return text
 
     @tool
     async def fire_weapons(weapons: str, mode: str = "once", grid: str | None = None) -> str:
         """Fire weapons: mode "once" (one shot), "on" (keep firing) or "off". weapons: comma-separated names,
-        or "all". Needs allowWeapons in the plugin config (off by default). Check what's in the line of fire."""
+        or "all". Needs allowWeapons in the plugin config (off by default). Check what's in the line of fire.
+        Fires straight away: after aiming, wait for aim_turrets to report "On target" (or use target_block with
+        fire=True, which waits by itself), or the shot goes wherever the barrel points mid-swing."""
         _, r = await _weapons(grid)
         chosen = combat.pick(r["weapons"], weapons, ("turret", "fixed"))
         result = await bridge.call("weapon.fire", {"blockIds": [w["id"] for w in chosen], "mode": mode})

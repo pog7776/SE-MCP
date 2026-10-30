@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from se_mcp import combat
@@ -105,18 +106,36 @@ async def test_track_target_follows_a_moving_hit():
     assert guesses[1][2] < 200  # the second scan aims where the target should have moved to
 
 
-def _target_handlers(los_hit: dict[str, Any] | None) -> dict[str, Any]:
+def _target_handlers(los_hit: dict[str, Any] | None, stuck_deg: float | None = None) -> dict[str, Any]:
+    """A Red Ship with one turret that swings onto whatever it's aimed at two polls later (or stops stuck_deg off)."""
     h = default_handlers()
-    shooters = {"gridName": "Red Ship", "ammo": {}, "weapons": [
-        {**WEAPONS["weapons"][1], "position": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0]}]}
-    h["weapons.get"] = lambda p: shooters
+    turret = {**WEAPONS["weapons"][1], "position": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0],
+              "aimDirection": [1.0, 0.0, 0.0]}
+    aim = {"at": None, "polls": 0}
+
+    def weapons_get(_: dict[str, Any]) -> dict[str, Any]:
+        if aim["at"] is not None:
+            aim["polls"] += 1
+            if aim["polls"] >= 2:
+                d = aim["at"]
+                if stuck_deg is not None:
+                    t = math.radians(stuck_deg)
+                    d = [d[0] * math.cos(t) + abs(d[2]) * math.sin(t), d[1], d[2] * math.cos(t)]
+                turret["aimDirection"] = d
+        return {"gridName": "Red Ship", "ammo": {}, "weapons": [dict(turret)]}
+
+    def turret_aim(p: dict[str, Any]) -> dict[str, Any]:
+        aim["at"] = p["position"]
+        return {"aimed": ["Gatling Turret"]}
+
+    h["weapons.get"] = weapons_get
     h["block.get"] = lambda p: {
         "block": {"id": p["blockId"], "name": "Whale_Hydrogen Tank 2", "gridId": "2002"}, "gridName": "Whale",
         "position": [0.0, 0.0, -300.0], "forward": [1, 0, 0], "up": [0, 1, 0], "gridVelocity": [0.0, 0.0, 5.0]}
     h["grid.motion"] = lambda p: {"center": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0],
                                   "right": [1.0, 0.0, 0.0], "cockpit": None, "isStatic": False, "gravityG": 0,
                                   "angularVelocity": [0, 0, 0], "gyros": []}
-    h["turret.aim"] = lambda p: {"aimed": ["Gatling Turret"]}
+    h["turret.aim"] = turret_aim
     h["los.check"] = lambda p: {"clear": los_hit is None, "distance": 300, "hit": los_hit}
     h["weapon.fire"] = lambda p: {"fired": ["Gatling Turret"], "mode": p["mode"]}
     return h
@@ -127,7 +146,7 @@ async def test_target_block_aims_turrets_at_the_block_and_fires_through_its_armo
     text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets",
                                            "fire": True})
     assert text.startswith("Target: Whale_Hydrogen Tank 2 on Whale, 300 m away.")
-    assert "Aimed Gatling Turret, leading it at 5 m/s." in text
+    assert "Leading it at 5 m/s." in text and "On target: Gatling Turret (within " in text
     assert "Gatling Turret's shots meet Heavy Armor Block first, 4 m before Whale_Hydrogen Tank 2." in text
     assert text.endswith("Fired one shot from Gatling Turret.")
 
@@ -156,3 +175,11 @@ async def test_target_block_names_armour_plainly():
                           "block": {"name": "MyObjectBuilder_CubeBlock/HalfArmorBlock"}, "fromStart": 294})
     text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets"})
     assert "Gatling Turret's shots meet Half Armor Block first, 6 m before Whale_Hydrogen Tank 2." in text
+
+
+async def test_target_block_holds_fire_on_a_turret_that_cant_reach():
+    h = _target_handlers(None, stuck_deg=20)
+    text = await _call(h, "target_block", {"block": "86099400851731085", "target_grid": "Whale", "weapons": "turrets",
+                                           "fire": True})
+    assert "! Gatling Turret couldn't get on target (20 deg off: out of its arc or blocked)." in text
+    assert "Held fire on Gatling Turret: not on target." in text and "Fired one shot" not in text
