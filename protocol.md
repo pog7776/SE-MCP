@@ -102,6 +102,7 @@ These write to the game, so they all fail with `read_only` when `readOnly` is on
 | `block.action` | `blockId`, or `gridId` + `group`; `action` (terminal action id, e.g. `OnOff_On`) | `action`, `applied[]` (block names), `skipped[]` (reasons). A single block without the action → `invalid_params` listing the available ids |
 | `block.set_property` | `blockId`, or `gridId` + `group`; `property`; `value` | `property`, `changed[]` (`block`, `before`, `after`), `skipped[]`. Types: Boolean (true/false, "on"/"off"), Single (number, clamped to the block's min/max), Int64, StringBuilder/String, Color (`#RRGGBB`, `#RRGGBBAA` or `{r,g,b,a?}`) |
 | `block.set_name` | `blockId`, `value` | `before`, `after` |
+| `block.rename_many` | `renames[]`: `{blockId, name}` | `renamed[]` (`id`, `before`, `after`), `failed[]` (`id`, `error`). All in one game-thread call, by id. Blocked by `readOnly` |
 | `block.set_custom_data` | `blockId`, `value` | `block`, `beforeLength`, `afterLength` |
 | `notify` | `text`, `kind?` (`hud` default, or `chat`), `durationMs?` (hud, 500–60000, default 5000), `font?`, `sender?` (chat, default "Claude") | `shown`, `kind` |
 

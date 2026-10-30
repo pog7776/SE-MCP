@@ -322,6 +322,13 @@ Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the
     - **Speed:** the loop runs over RPC a few times a second, so its gains and limits are conservative and the user finds it slow. Move the closed loop into the plugin, running every tick, with a trapezoidal velocity profile (full speed in transit, braking planned from measured thrust per axis). Python sends the goal and polls the status.
     - **The RC:** the RC autopilot is fast in transit and has the game's collision avoidance, but it always turns its leading face toward the travel direction. So it can't hold a sideways connector attitude, and many ships (like the Blue Ship) don't have one. Plan: our pilot (v2) is the main pilot. When the ship has an RC, it's an option for long transit legs to the approach point, and our pilot always does the final approach.
 
+17. **Renaming toolkit** (a skill set players use all the time; found 2026-10-30 when the companion tagged 74 blocks with 74 separate `rename_block` calls, each looked up by name):
+    - ✅ `rename_blocks`: pick blocks by name/group/type (or the whole ship), then strip a prefix, find/replace, a template (`{name}` `{type}` `{n}` per type `{i}` overall, numbered in natural order) and add a prefix/suffix (skipped where present, so repeats are safe). `dry_run` previews. One `block.rename_many` call applies it by id. Verified live: 2 renames in 0.05 s.
+    - Next: rename the ship itself (grid name, `grid.set_name`) and its subgrids ("Red Ship - Drill Arm").
+    - Next: names from position ("Thruster Front Left", "Gear Rear"), using the cockpit frame `docking_status` already computes.
+    - Next: a clean-up preset (strip ship tags, renumber per type, tag by ship) and an undo of the last bulk rename (keep the before names).
+    - Next: make groups from names or position ("all left thrusters"), with `edit_group`.
+
 ### M8: Fair play
 
 The rule: everything the assistant can do is useful in plain sandbox mode, and fair mode limits it to what an in-game AI could know and reach.

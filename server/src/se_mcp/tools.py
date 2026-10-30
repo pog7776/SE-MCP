@@ -19,6 +19,7 @@ from . import forecast as forecast_mod
 from . import format as fmt
 from . import hud as hud_mod
 from . import items as items_mod
+from . import naming
 from . import notes as notes_mod
 from . import ore as ore_mod
 from . import organizer
@@ -986,6 +987,53 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         target = await resolve.block(bridge, block, grid)
         result = await bridge.call("block.set_name", {"blockId": target["id"], "value": new_name})
         return f"Renamed '{result['before']}' to '{result['after']}'."
+
+    @tool
+    async def rename_blocks(
+        grid: str | None = None,
+        name_contains: str | None = None,
+        group: str | None = None,
+        type: str | None = None,
+        all_blocks: bool = False,
+        prefix: str | None = None,
+        suffix: str | None = None,
+        find: str | None = None,
+        replace: str = "",
+        strip_prefix: str | None = None,
+        template: str | None = None,
+        dry_run: bool = False,
+    ) -> str:
+        """Rename many blocks in one go (use this instead of calling rename_block over and over). Choose blocks by
+        name_contains, group and/or type, or all_blocks=True for every terminal block on the ship (subgrids included).
+        Then say how names change; steps apply in this order:
+        strip_prefix (remove a leading tag, e.g. "[Old]"), find/replace (case-insensitive text), template (a whole new
+        name with {name}, {type} e.g. "Ion Thruster", {n} = 1, 2, 3... per type, {i} = 1, 2, 3... overall), then
+        prefix and suffix (skipped where already present, so it's safe to repeat).
+        Examples: prefix="[Constructor]"; strip_prefix="[Constructor]"; find="Thruster", replace="Thr";
+        template="{type} {n}" to renumber. dry_run=True shows what would change without renaming. Renames are by id,
+        so similar names can't be mixed up. Undo with the opposite rename (e.g. strip_prefix after a prefix)."""
+        if not (name_contains or group or type or all_blocks):
+            return "Choose blocks with name_contains, group or type, or pass all_blocks=True for the whole ship."
+        if not (prefix or suffix or find or strip_prefix or template):
+            return "Say how to change the names: prefix, suffix, find/replace, strip_prefix or template."
+        target = await resolve.grid(bridge, grid)
+        params: dict[str, Any] = {"gridId": target["id"], "limit": 2000}
+        for key, value in (("nameContains", name_contains), ("group", group), ("type", type)):
+            if value:
+                params[key] = value
+        blocks = (await bridge.call("blocks.list", params))["blocks"]
+        changes = naming.plan(blocks, prefix=prefix, suffix=suffix, find=find, replace=replace,
+                              strip_prefix=strip_prefix, template=template)
+        if not changes:
+            return f"Nothing to rename: {len(blocks)} block(s) matched and already have those names."
+        if dry_run:
+            return f"Would rename {len(changes)} of {len(blocks)} block(s):\n{naming.summary(changes)}"
+        r = await bridge.call("block.rename_many", {"renames": [{"blockId": b["id"], "name": new} for b, new in changes]})
+        done = [(next(b for b, _ in changes if b["id"] == x["id"]), x["after"]) for x in r["renamed"]]
+        text = f"Renamed {len(done)} of {len(blocks)} block(s):\n{naming.summary(done)}"
+        if r["failed"]:
+            text += "\nFailed: " + "; ".join(f"{x['id']}: {x['error']}" for x in r["failed"][:10])
+        return text
 
     @tool
     async def set_custom_data(block: str, data: str, grid: str | None = None) -> str:

@@ -230,6 +230,13 @@ class Runner:
                     self.log(f"! Couldn't reply in game: {e}")
 
 
+def code_stamp() -> float:
+    """Newest change to this package's files. The tools load fresh in each Claude process (it starts its own MCP
+    server), so a restart picks up new ones; this runner's own code (RULES) still needs the runner restarted."""
+    package = Path(__file__).parent
+    return max((p.stat().st_mtime for p in package.rglob("*") if p.suffix in (".py", ".md")), default=0.0)
+
+
 def mcp_config(directory: Path) -> Path:
     """An MCP config that starts this same server with this same Python, so the runner needs no other setup."""
     path = directory / "mcp.json"
@@ -255,6 +262,7 @@ class ClaudeBrain:
         self.config = mcp_config(directory)
         self.process: asyncio.subprocess.Process | None = None
         self.soul_stamp: float | None = None
+        self.code_stamp: float | None = None
         self.lock = asyncio.Lock()
 
     def _soul_changed(self) -> bool:
@@ -263,9 +271,14 @@ class ClaudeBrain:
         except OSError:
             return False
 
+    def _code_changed(self) -> bool:
+        """The MCP server code (tools, soul presets) changed since this Claude process started it."""
+        return code_stamp() != self.code_stamp
+
     async def _start(self) -> asyncio.subprocess.Process:
         soul = companion.read_soul()
         self.soul_stamp = companion.soul_path().stat().st_mtime
+        self.code_stamp = code_stamp()
         system = f"{RULES}\n\n# Your soul (SOUL.md)\n\n{soul}"
         args = [self.claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--mcp-config", str(self.config), "--strict-mcp-config", "--tools", "",
@@ -301,7 +314,8 @@ class ClaudeBrain:
 
     async def ask(self, text: str) -> Turn:
         async with self.lock:
-            if self.process is not None and (self.process.returncode is not None or self._soul_changed()):
+            if self.process is not None and (self.process.returncode is not None or self._soul_changed()
+                                             or self._code_changed()):
                 await self._stop()
             process = self.process or await self._start()
             assert process.stdin is not None and process.stdout is not None

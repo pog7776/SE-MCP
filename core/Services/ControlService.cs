@@ -29,6 +29,7 @@ namespace SEMcp.Core.Services
             dispatcher.Register("block.action", Action);
             dispatcher.Register("block.set_property", SetProperty);
             dispatcher.Register("block.set_name", SetName);
+            dispatcher.Register("block.rename_many", RenameMany);
             dispatcher.Register("block.set_custom_data", SetCustomData);
             dispatcher.Register("notify", Notify);
         }
@@ -253,6 +254,38 @@ namespace SEMcp.Core.Services
             block.CustomName = name;
             Log($"rename ({block.EntityId}): '{before}' -> '{name}'");
             return new { before, after = block.CustomName };
+        }
+
+        // Many renames in one game-thread call, by id, so a bulk rename is one round trip and never fuzzy.
+        private object RenameMany(JsonObject p)
+        {
+            dispatcher.RequireWritable();
+            var list = p["renames"] as JsonArray ?? throw new RpcException(ErrorKind.InvalidParams, "Give renames: [{blockId, name}]");
+            var renamed = new List<object>();
+            var failed = new List<object>();
+            foreach (var node in list)
+            {
+                var item = node as JsonObject;
+                string id = item?["blockId"]?.ToString();
+                try
+                {
+                    if (item == null)
+                        throw new RpcException(ErrorKind.InvalidParams, "Each rename must be {blockId, name}");
+                    var block = access.Block(item.Id("blockId"));
+                    string name = item.String("name", required: true);
+                    if (string.IsNullOrWhiteSpace(name))
+                        throw new RpcException(ErrorKind.InvalidParams, "Name can't be empty");
+                    string before = block.CustomName;
+                    block.CustomName = name;
+                    renamed.Add(new { id = block.EntityId.ToString(), before, after = block.CustomName });
+                }
+                catch (RpcException e)
+                {
+                    failed.Add(new { id, error = e.Message });
+                }
+            }
+            Log($"rename_many: {renamed.Count} renamed, {failed.Count} failed");
+            return new { renamed, failed };
         }
 
         private object SetCustomData(JsonObject p)
