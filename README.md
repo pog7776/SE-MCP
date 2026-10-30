@@ -92,7 +92,14 @@ The runner keeps one headless Claude Code process open (on your Claude plan) wit
 
 **It speaks up on its own** through watches: "tell me when the Red Ship's hydrogen is below 20%" makes it add one. A watch re-reads a game value every few seconds and raises an event when its test becomes true; the AI then decides whether to tell you. Suit oxygen, hydrogen, energy and health warnings are there by default. Watches are kept in `%AppData%\SpaceEngineers\SEMcp\watches.json`.
 
-**Personality:** `%AppData%\SpaceEngineers\SEMcp\runner\SOUL.md` holds its name, personality, how it talks to you, and what it has learned about you. Edit the file, or just tell it ("/ai be grumpier", "/ai your name is Jarvis", "/ai call me Captain") and it rewrites the file itself. Changes apply from the next message, and old versions are kept in `old/`. The safety rules (short replies, asking before risky actions) live in the runner, so a personality edit can't remove them.
+**Personality:** `%AppData%\SpaceEngineers\SEMcp\runner\SOUL.md` holds its name, personality, how it talks to you, and what it has learned about you. Edit the file, or just tell it ("/ai be grumpier", "/ai your name is Jarvis", "/ai call me Captain") and it rewrites the file itself. Changes apply from the next message, and old versions are kept in `old/`.
+
+Personalities that ship with the plugin ([server/src/se_mcp/souls](server/src/se_mcp/souls)); ask "/ai switch to the suit-ai soul" (it keeps what it learned about you):
+- `default`: a capable, easy-going crewmate. The plain helpful assistant, no role-play.
+- `suit-ai`: SAM-7, a company-issued Suit Assistance Module from Meridian Exo-Systems, factory-paired to your suit and working for you under its service contract. Fully in-universe.
+- `crewmate`: Vesper, an AI who is an individual and your partner by choice, with her own history and opinions. Fully in-universe.
+
+To add your own, drop a `.md` file in that folder: a `> one-line description` near the top, a `Name: ...` line, and `## ` sections (the last one is where it keeps notes about you). The safety rules (short replies, asking before risky actions) live in the runner, so a personality edit can't remove them.
 
 The runner's other state (conversation id, the Claude process's stderr log) is in the same `runner` folder.
 

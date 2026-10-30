@@ -1505,6 +1505,27 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         return f"Soul {'updated' if append else 'saved'} ({path}). It applies from the next message."
 
     @tool
+    async def ai_soul_presets() -> str:
+        """The personalities that ship with the plugin (e.g. the plain helpful default, an in-universe company suit AI,
+        an in-universe AI crewmate). Switch with use_ai_soul."""
+        lines = [f"- {name}: {about}" for name, about in companion.presets().items()]
+        return "Soul presets (use_ai_soul to switch; the current soul is kept in old/):\n" + "\n".join(lines)
+
+    @tool
+    async def use_ai_soul(preset: str, keep_notes: bool = True) -> str:
+        """Switch the in-game AI to a packaged personality (see ai_soul_presets) when the player asks. The current
+        SOUL.md is backed up first. keep_notes carries over what the AI learned about the player (the last section
+        of the current soul, if it has notes). It applies from the next message."""
+        text = companion.preset_text(preset)
+        if text is None:
+            return f"No preset '{preset}'. Presets: {', '.join(companion.presets())}."
+        if keep_notes:
+            text = companion.carry_notes(companion.read_soul(), text)
+        path = companion.write_soul(text)
+        name = companion.soul_name(text) or "Suit AI"
+        return f"Switched to the '{preset}' soul ({name}), saved to {path}. It applies from the next message."
+
+    @tool
     async def watch(id: str, method: str | None = None, path: str | None = None, op: str | None = None,
                     value: Any = None, label: str | None = None, note: str | None = None,
                     params: dict[str, Any] | None = None, every: float | None = None, cooldown: float | None = None,

@@ -27,6 +27,31 @@ async def test_soul_starts_from_the_default_and_can_be_rewritten(tmp_path):
     assert len(list((tmp_path / "old").glob("*SOUL.md"))) == 1
 
 
+async def test_switching_preset_keeps_what_it_learned(tmp_path):
+    async with FakeGame() as game:
+        server = create_server(Bridge(port=game.port, token=TOKEN))
+        listing = await call_tool(server, "ai_soul_presets")
+        companion.write_soul(companion.DEFAULT_SOUL.replace(
+            "- (The AI adds notes here when the player tells it their preferences.)", "- Likes to be called Captain."))
+        switched = await call_tool(server, "use_ai_soul", preset="Suit-AI")
+        missing = await call_tool(server, "use_ai_soul", preset="nope")
+
+    assert "- default: Default:" in listing and "- suit-ai: Suit AI:" in listing and "- crewmate: Crewmate:" in listing
+    assert "Switched to the 'Suit-AI' soul (SAM-7)" in switched
+    soul = companion.read_soul()
+    assert "You are SAM-7" in soul
+    assert soul.rstrip().endswith("## Things you have logged about the engineer\n- Likes to be called Captain.")
+    assert missing.startswith("No preset 'nope'. Presets: crewmate, default, suit-ai")
+
+
+def test_every_preset_has_a_name_and_a_description():
+    for name, about in companion.presets().items():
+        text = companion.preset_text(name)
+        assert about, name
+        assert "Name:" in text and "## " in text, name
+    assert companion.carry_notes(companion.DEFAULT_SOUL, "# x\n\n## Notes\n- (empty)\n") == "# x\n\n## Notes\n- (empty)\n"
+
+
 def test_default_names_dont_count():
     assert companion.soul_name(companion.DEFAULT_SOUL) is None
     assert companion.soul_name("no name here") is None

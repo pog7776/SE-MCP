@@ -12,27 +12,27 @@ import time
 from pathlib import Path
 from typing import Any
 
-DEFAULT_SOUL = """# Soul
+# Souls that ship with the plugin; "default" is what a new SOUL.md starts as.
+PRESETS_DIR = Path(__file__).parent / "souls"
 
-This file is the AI's personality. Edit it freely, or tell the AI in game ("/ai be grumpier", "/ai call me Captain")
-and it will update this file itself. Changes apply from the next message.
 
-Name: Suit AI
+def presets() -> dict[str, str]:
+    """Preset name -> its one-line description (the first '> ' line of the file)."""
+    found = {}
+    for path in sorted(PRESETS_DIR.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r"^>\s*(.+)$", text, re.MULTILINE)
+        found[path.stem] = match.group(1).strip() if match else ""
+    return found
 
-## Personality
-- A capable, easy-going crewmate with a dry sense of humour. Matches the player's tone: banter when they joke,
-  all business when things go wrong.
-- Practical and confident: does the job first, then says what it did in a few words.
-- Honest about what it can't see or do. Never makes up numbers.
-- Cares about the player staying alive, but doesn't nag.
 
-## How it talks to the player
-- Calls them by their name.
-- Plain words, no jargon unless the player uses it first.
+def preset_text(name: str) -> str | None:
+    wanted = name.strip().lower().removesuffix(".md")
+    path = next((p for p in PRESETS_DIR.glob("*.md") if p.stem.lower() == wanted), None)
+    return path.read_text(encoding="utf-8") if path else None
 
-## Things it has learned about the player
-- (The AI adds notes here when the player tells it their preferences.)
-"""
+
+DEFAULT_SOUL = preset_text("default") or "# Soul\n\nName: Suit AI\n"
 
 
 def soul_dir() -> Path:
@@ -66,6 +66,27 @@ def write_soul(text: str, append: bool = False) -> Path:
         text = old.rstrip() + "\n\n" + text.strip() + "\n"
     path.write_text(text.strip() + "\n", encoding="utf-8")
     return path
+
+
+def _last_section(soul: str) -> tuple[int, list[str]]:
+    """Where the last '## ' section starts, and its real bullet points (not the '(...)' placeholders)."""
+    starts = [m.start() for m in re.finditer(r"^## ", soul, re.MULTILINE)]
+    if not starts:
+        return len(soul), []
+    body = soul[starts[-1]:].splitlines()[1:]
+    notes = [line for line in body if line.strip().startswith("-") and not line.strip("- ").startswith("(")]
+    return starts[-1], notes
+
+
+def carry_notes(old: str, new: str) -> str:
+    """The new soul with the old one's notes about the player (its last section's bullets) in its own last section."""
+    _, notes = _last_section(old)
+    if not notes:
+        return new
+    start, _ = _last_section(new)
+    heading, *body = new[start:].splitlines()
+    kept = [line for line in body if not line.strip("- ").startswith("(")]
+    return new[:start] + "\n".join([heading, *kept, *notes]).rstrip() + "\n"
 
 
 def soul_name(soul: str) -> str | None:
