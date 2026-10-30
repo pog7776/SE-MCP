@@ -64,7 +64,7 @@ namespace SEMcp.Core.Services
 
         private object Summary(IMyCubeGrid grid)
         {
-            var construct = grid.GetGridGroup(GridLinkTypeEnum.Logical)?.GetGrids(new List<IMyCubeGrid>()) ?? new List<IMyCubeGrid>();
+            var construct = Access.Construct(grid);
             var docked = grid.GetGridGroup(GridLinkTypeEnum.Physical)?.GetGrids(new List<IMyCubeGrid>()) ?? new List<IMyCubeGrid>();
             return new
             {

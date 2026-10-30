@@ -76,7 +76,7 @@ Answers `{"reloading": true}`, then on the next frame the plugin stops the host 
 
 All of these need a loaded world (`no_session` otherwise). Grids and blocks are limited to what the player may use: owned by them, by their faction, or by nobody (`access_denied` otherwise), within `maxRangeMeters` (`out_of_range`). Ids are strings. Volumes are in liters, mass in kg, power in MW/MWh, percentages are 0–100.
 
-A **construct** is a grid plus everything attached by rotors, pistons and hinges (`GridLinkTypeEnum.Logical`). The **docked group** adds connector-attached grids (`Physical`). Group ids are the smallest entity id in the group.
+A **construct** is a grid plus everything attached by rotors, pistons and hinges (`GridLinkTypeEnum.Mechanical`). The **docked group** adds connector-attached grids (`Logical`; `Physical` also takes in landing gear). Group ids are the smallest entity id in the group.
 
 | Method | Params | Returns |
 |---|---|---|

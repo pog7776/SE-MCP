@@ -89,9 +89,15 @@ namespace SEMcp.Core
         }
 
         // The grid plus everything attached by rotors, pistons and hinges: what a player calls "the ship".
-        public static List<IMyCubeGrid> Construct(IMyCubeGrid grid)
+        // Mechanical, not Logical: Logical also takes in ships docked by connectors.
+        public static List<IMyCubeGrid> Construct(IMyCubeGrid grid) => Group(grid, GridLinkTypeEnum.Mechanical);
+
+        // The construct plus ships docked to it by connectors (one terminal and conveyor system).
+        public static List<IMyCubeGrid> WithDocked(IMyCubeGrid grid) => Group(grid, GridLinkTypeEnum.Logical);
+
+        private static List<IMyCubeGrid> Group(IMyCubeGrid grid, GridLinkTypeEnum link)
         {
-            var grids = grid.GetGridGroup(GridLinkTypeEnum.Logical)?.GetGrids(new List<IMyCubeGrid>());
+            var grids = grid.GetGridGroup(link)?.GetGrids(new List<IMyCubeGrid>());
             if (grids == null || grids.Count == 0)
                 return new List<IMyCubeGrid> { grid };
             // Main grid first, then the rest by size.

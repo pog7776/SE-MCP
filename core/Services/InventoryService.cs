@@ -38,7 +38,7 @@ namespace SEMcp.Core.Services
         {
             var grid = access.Grid(p.Id("gridId"));
             var inventories = new List<(IMyTerminalBlock block, int index, IMyInventory inventory)>();
-            foreach (var block in Access.Construct(grid).SelectMany(g => g.GetFatBlocks<IMyTerminalBlock>()))
+            foreach (var block in Access.WithDocked(grid).SelectMany(g => g.GetFatBlocks<IMyTerminalBlock>()))
             {
                 if (!block.HasInventory || !access.CanUse(block))
                     continue;
