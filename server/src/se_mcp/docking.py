@@ -219,7 +219,8 @@ def status_text(r: dict[str, Any]) -> str:
 def pick(connectors: list[dict[str, Any]], name: str | None, want_free: bool, what: str) -> dict[str, Any]:
     pool = [c for c in connectors if c["working"]]
     if name:
-        found = [c for c in pool if c["name"].lower() == name.lower()] or [c for c in pool if name.lower() in c["name"].lower()]
+        found = ([c for c in pool if str(c.get("id")) == name.strip()] or [c for c in pool if c["name"].lower() == name.lower()]
+                 or [c for c in pool if name.lower() in c["name"].lower()])
         if not found:
             raise ValueError(f"No working connector '{name}' on {what}. Connectors: {', '.join(c['name'] for c in connectors)}")
         return found[0]

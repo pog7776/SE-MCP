@@ -19,10 +19,11 @@ def test_thrust_split_uses_the_thrusters_that_push_that_way():
 
 
 def test_pick_prefers_free_connectors_and_matches_names():
-    cs = [{"name": "Connector 3", "working": True, "status": "Connected"},
-          {"name": "Connector 4", "working": True, "status": "Unconnected"}]
+    cs = [{"id": "5000003", "name": "Connector 3", "working": True, "status": "Connected"},
+          {"id": "5000004", "name": "Connector 4", "working": True, "status": "Unconnected"}]
     assert docking.pick(cs, None, True, "Red Ship")["name"] == "Connector 4"
     assert docking.pick(cs, "connector 3", True, "Red Ship")["name"] == "Connector 3"
+    assert docking.pick(cs, "5000004", True, "Red Ship")["name"] == "Connector 4"  # by block id
     with pytest.raises(ValueError):
         docking.pick(cs, "Connector 9", True, "Red Ship")
 
