@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+
 from se_mcp.bridge import Bridge
-from se_mcp.runner import SILENT, Conversation, Runner, Turn, chat_lines, context_line, event_message
+from se_mcp.runner import SILENT, Conversation, Runner, StatusHud, Turn, chat_lines, context_line, event_message
 
 from .fake_bridge import TOKEN, FakeGame, default_handlers
 
@@ -24,8 +27,10 @@ class FakeBrain:
         self.asked: list[str] = []
         self.resets = 0
 
-    async def ask(self, text: str) -> Turn:
+    async def ask(self, text: str, progress=None) -> Turn:
         self.asked.append(text)
+        if progress:
+            progress("ship_hud")
         if self.fail:
             raise self.fail
         return Turn(self.reply, "session-2")
@@ -41,7 +46,15 @@ def make_runner(game: FakeGame, brain: FakeBrain, soul: str = SOUL) -> Runner:
 def handlers() -> dict:
     h = default_handlers()
     h["comms.post"] = lambda p: {"posted": True}
+    h["overlay.set"] = lambda p: {"set": [e["id"] for e in p["elements"]], "total": 2}
+    h["overlay.remove"] = lambda p: {"removed": len(p["ids"]), "total": 0}
     return h
+
+
+def statuses(game: FakeGame) -> list[tuple[str, str]]:
+    """(text, colour) of each status line drawn."""
+    return [(e["text"], e["color"]) for m, p in game.calls if m == "overlay.set"
+            for e in p["elements"] if e["id"] == StatusHud.TEXT]
 
 
 def chats(game: FakeGame) -> list[tuple[str, str]]:
@@ -60,7 +73,49 @@ async def test_chat_gets_an_answer_with_its_context():
     assert brain.asked[0].startswith("[Context: dingus is on foot in their suit. Sent from the chat at ")
     assert brain.asked[0].endswith("\nhow much hydrogen?")
     assert chats(game) == [("Suit AI", "Hydrogen is at 80%.")]
-    assert ("notify", {"text": "Suit AI is thinking...", "kind": "hud", "durationMs": 3000}) in game.calls
+    assert statuses(game) == [("Suit AI: thinking... 0s", StatusHud.COLORS["thinking"]),
+                              ("Suit AI: listening", StatusHud.COLORS["idle"])]
+
+
+def test_status_text_shows_the_tool_time_and_queue():
+    now = [100.0]
+    hud = StatusHud(None, clock=lambda: now[0])
+    hud.name, hud.state, hud.started = "SAM-7", "thinking", 100.0
+    now[0] = 104.6
+    assert hud.text() == "SAM-7: thinking... 4s"
+    hud.using("point_ship")
+    hud.waiting = 2
+    assert hud.text() == "SAM-7: point ship... 4s (+2 waiting)" and hud.color() == StatusHud.COLORS["tool"]
+    hud.state, hud.waiting, hud.error_until = "idle", 0, 110
+    assert hud.text() == "SAM-7: couldn't answer" and hud.color() == StatusHud.COLORS["error"]
+    now[0] = 111
+    assert hud.text() == "SAM-7: listening"
+
+
+async def test_messages_sent_mid_turn_are_counted_and_answered_in_order():
+    sent = [chat("first"), chat("second"), chat("third")]
+
+    class SlowBrain(FakeBrain):
+        async def ask(self, text, progress=None):
+            await asyncio.sleep(1.3)  # long enough for the status ticker to draw once
+            return await super().ask(text, progress)
+
+    h = handlers()
+    h["events.poll"] = lambda p: {"events": [sent.pop(0)] if sent else []}
+    brain = SlowBrain("ok")
+    async with FakeGame(h) as game:
+        runner = make_runner(game, brain)
+        task = asyncio.create_task(runner.run())
+        while len(brain.asked) < 3:
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.2)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert [a.rsplit("\n", 1)[1] for a in brain.asked] == ["first", "second", "third"]
+    assert any("waiting)" in text for text, _ in statuses(game))
+    assert ("overlay.remove", {"ids": [StatusHud.ICON, StatusHud.TEXT]}) in game.calls
 
 
 async def test_comms_messages_are_answered_in_the_comms_tab():

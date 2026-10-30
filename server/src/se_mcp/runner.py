@@ -60,9 +60,78 @@ class Turn:
     session_id: str | None = None
 
 
+Progress = Callable[[str], None]
+
+
 class Brain(Protocol):
-    async def ask(self, text: str) -> Turn: ...
+    async def ask(self, text: str, progress: Progress | None = None) -> Turn: ...
     async def reset(self) -> None: ...
+
+
+class StatusHud:
+    """A small icon and line of text on the player's HUD saying what the AI is doing: listening, thinking, which
+    tool it's using, and how many messages wait. Drawn with the plugin's overlay; refreshed with a ttl, so it
+    disappears on its own if the runner stops."""
+
+    ICON, TEXT = "ai-status-icon", "ai-status-text"
+    COLORS = {"idle": "#8FA3B0B0", "thinking": "#4FC3F7", "tool": "#FFB74D", "error": "#EF5350"}
+    TTL = 75
+
+    def __init__(self, bridge: Bridge, x: float = 0.012, y: float = 0.58, clock: Callable[[], float] = time.monotonic):
+        self.bridge, self.x, self.y, self.clock = bridge, x, y, clock
+        self.name = "Suit AI"
+        self.state, self.tool = "idle", None
+        self.started = 0.0
+        self.waiting = 0
+        self.error_until = 0.0
+
+    def text(self) -> str:
+        if self.clock() < self.error_until:
+            line = f"{self.name}: couldn't answer"
+        elif self.state == "idle":
+            line = f"{self.name}: listening"
+        else:
+            seconds = int(self.clock() - self.started)
+            doing = self.tool.replace("_", " ") if self.state == "tool" and self.tool else "thinking"
+            line = f"{self.name}: {doing}... {seconds}s"
+        if self.waiting:
+            line += f" (+{self.waiting} waiting)"
+        return line
+
+    def color(self) -> str:
+        return self.COLORS["error" if self.clock() < self.error_until else self.state]
+
+    async def draw(self) -> None:
+        color = self.color()
+        elements = [
+            {"id": self.ICON, "kind": "icon", "icon": "chat", "x": self.x, "y": self.y, "w": 0.02, "color": color,
+             "ttl": self.TTL},
+            {"id": self.TEXT, "kind": "text", "text": self.text(), "x": self.x + 0.016, "y": self.y - 0.009,
+             "scale": 0.55, "color": color, "background": "#00000060", "ttl": self.TTL},
+        ]
+        try:
+            await self.bridge.call("overlay.set", {"elements": elements})
+        except BridgeError:
+            pass  # no world, or the game is gone: the status is cosmetic
+
+    async def busy(self, name: str) -> None:
+        self.name, self.state, self.tool, self.started = name, "thinking", None, self.clock()
+        await self.draw()
+
+    def using(self, tool: str) -> None:
+        self.state, self.tool = "tool", tool
+
+    async def idle(self, failed: bool = False) -> None:
+        self.state, self.tool = "idle", None
+        if failed:
+            self.error_until = self.clock() + 10
+        await self.draw()
+
+    async def clear(self) -> None:
+        try:
+            await self.bridge.call("overlay.remove", {"ids": [self.ICON, self.TEXT]})
+        except BridgeError:
+            pass
 
 
 def runner_dir() -> Path:
@@ -150,11 +219,35 @@ class Conversation:
 
 class Runner:
     def __init__(self, bridge: Bridge, brain: Brain, log: Callable[[str], None] = print,
-                 soul: Callable[[], str] = companion.read_soul):
+                 soul: Callable[[], str] = companion.read_soul, status: StatusHud | None = None):
         self.bridge = bridge
         self.brain = brain
         self.log = log
         self.soul = soul
+        self.status = status or StatusHud(bridge)
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def think(self, event: dict[str, Any], text: str) -> Turn:
+        """Ask the brain while the HUD shows it working: elapsed seconds, the tool in use, messages waiting."""
+        await self.status.busy(ai_name(event, self.soul()))
+
+        async def tick() -> None:
+            while True:
+                await asyncio.sleep(1)
+                self.status.waiting = self.queue.qsize()
+                await self.status.draw()
+
+        ticker = asyncio.create_task(tick())
+        failed = False
+        try:
+            return await self.brain.ask(text, progress=self.status.using)
+        except Exception:
+            failed = True
+            raise
+        finally:
+            ticker.cancel()
+            self.status.waiting = self.queue.qsize()
+            await self.status.idle(failed)
 
     async def reply(self, event: dict[str, Any], text: str) -> None:
         ai = ai_name(event, self.soul())
@@ -177,11 +270,8 @@ class Runner:
             await self.brain.reset()
             await self.reply(event, "Fresh start. What do you need?")
             return
-        if event.get("source") != "comms":
-            await self.bridge.call("notify", {"text": f"{ai_name(event, self.soul())} is thinking...", "kind": "hud",
-                                              "durationMs": 3000})
         try:
-            turn = await self.brain.ask(f"{context_line(event)}\n{text}")
+            turn = await self.think(event, f"{context_line(event)}\n{text}")
         except Exception as e:  # the player should hear about any failure, not just a silent chat
             self.log(f"! {e}")
             await self.reply(event, f"I couldn't answer that: {e}")
@@ -192,7 +282,7 @@ class Runner:
     async def handle_event(self, event: dict[str, Any]) -> None:
         self.log(f"* {event.get('type')}: {event.get('text')}")
         try:
-            turn = await self.brain.ask(event_message(event))
+            turn = await self.think(event, event_message(event))
         except Exception as e:
             self.log(f"! {e}")
             return
@@ -207,13 +297,15 @@ class Runner:
         result = await self.bridge.call("events.poll", {"waitMs": POLL_WAIT_MS}, timeout=POLL_WAIT_MS / 1000 + 10)
         return list((result or {}).get("events") or [])
 
-    async def run(self) -> None:
+    async def poll_forever(self) -> None:
+        """Keeps collecting events while a turn runs, so the HUD can count what's waiting."""
         waiting = False
         while True:
             try:
                 events = await self.poll_once()
                 if waiting:
                     self.log("Connected to the game; listening.")
+                    await self.status.draw()
                 waiting = False
             except BridgeError as e:
                 if e.kind == "timeout":
@@ -224,10 +316,33 @@ class Runner:
                 await asyncio.sleep(RETRY_SECONDS)
                 continue
             for event in events:
+                self.queue.put_nowait(event)
+            if events and self.status.state != "idle":
+                self.status.waiting = self.queue.qsize()
+                await self.status.draw()
+
+    async def keep_status(self) -> None:
+        """Redraws the idle status now and then, so its ttl doesn't run out while the runner is alive."""
+        while True:
+            await asyncio.sleep(StatusHud.TTL / 3)
+            if self.status.state == "idle":
+                await self.status.draw()
+
+    async def run(self) -> None:
+        tasks = [asyncio.create_task(self.poll_forever()), asyncio.create_task(self.keep_status())]
+        await self.status.draw()
+        try:
+            while True:
+                event = await self.queue.get()
+                self.status.waiting = self.queue.qsize()
                 try:
                     await self.handle(event)
                 except BridgeError as e:
                     self.log(f"! Couldn't reply in game: {e}")
+        finally:
+            for task in tasks:
+                task.cancel()
+            await self.status.clear()
 
 
 def code_stamp() -> float:
@@ -312,7 +427,7 @@ class ClaudeBrain:
             await self._stop()
             self.conversation.update(None)
 
-    async def ask(self, text: str) -> Turn:
+    async def ask(self, text: str, progress: Progress | None = None) -> Turn:
         async with self.lock:
             if self.process is not None and (self.process.returncode is not None or self._soul_changed()
                                              or self._code_changed()):
@@ -323,7 +438,7 @@ class ClaudeBrain:
             try:
                 process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
                 await process.stdin.drain()
-                result = await asyncio.wait_for(self._read_result(process), self.timeout)
+                result = await asyncio.wait_for(self._read_result(process, progress), self.timeout)
             except asyncio.TimeoutError:
                 await self._stop()
                 raise RuntimeError(f"it took longer than {self.timeout:g}s") from None
@@ -338,7 +453,8 @@ class ClaudeBrain:
             return Turn(str(result.get("result") or "").strip(), result.get("session_id"))
 
     @staticmethod
-    async def _read_result(process: asyncio.subprocess.Process) -> dict[str, Any]:
+    async def _read_result(process: asyncio.subprocess.Process, progress: Progress | None = None) -> dict[str, Any]:
+        """Reads the stream until the turn's result, telling `progress` the name of each tool as it's called."""
         assert process.stdout is not None
         while True:
             line = await process.stdout.readline()
@@ -350,6 +466,10 @@ class ClaudeBrain:
                 continue
             if message.get("type") == "result":
                 return message
+            if progress and message.get("type") == "assistant":
+                for block in (message.get("message") or {}).get("content") or []:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        progress(str(block.get("name", "")).split("__")[-1])
 
     def _stderr(self) -> str:
         try:
