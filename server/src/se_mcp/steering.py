@@ -110,6 +110,41 @@ class SteeringError(Exception):
     pass
 
 
+def turn_speed(angle: float, max_speed: float, accel: float | None = None, delay: float = 0.0,
+               gain: float = 0.6, margin: float = 0.7) -> float:
+    """How fast to spin (rad/s) with `angle` radians to go: slowing in proportion near the goal (gain), and never
+    faster than the ship can brake from in time: at `accel` rad/s^2 (times a safety margin), after the control
+    loop's `delay` seconds of carrying on before it reacts."""
+    speed = min(gain * angle, max_speed)
+    if accel:
+        a = accel * margin
+        speed = min(speed, a * (math.sqrt(delay * delay + 2 * angle / a) - delay))
+    return speed
+
+
+@dataclass
+class SpinUp:
+    """How fast a ship picks up spin while it speeds up at the start of a turn (rad/s^2). Gyros brake as hard as
+    they accelerate, so this is the braking rate too. Measured from start to the last sample still well short of
+    the commanded speed; a ship that gets there within a step reads low, which only makes braking gentler."""
+
+    start: tuple[float, float] | None = None
+    accel: float | None = None
+    done: bool = False
+
+    def sample(self, t: float, speed: float, commanded: float) -> None:
+        if self.done:
+            return
+        if self.start is None:
+            self.start = (t, speed)
+            return
+        t0, s0 = self.start
+        if t - t0 >= 0.1 and speed > s0:
+            self.accel = (speed - s0) / (t - t0)
+        if commanded > 0 and speed >= 0.7 * commanded:
+            self.done = True
+
+
 @dataclass
 class Steering:
     """Gyro override control for one grid. `convention` maps each override (Pitch/Yaw/Roll) to the gyro-local
@@ -121,6 +156,8 @@ class Steering:
     pulse_s: float = 0.8
     convention: dict[str, tuple[str, int]] = field(default_factory=dict)
     gyros: list[dict] = field(default_factory=list)
+    spin_up: SpinUp = field(default_factory=SpinUp)
+    overshoot_deg: float = 0.0
 
     async def motion(self) -> dict:
         return await self.bridge.call("grid.motion", {"gridId": self.grid_id})
@@ -171,25 +208,15 @@ class Steering:
         timeout_s: float = 120,
     ) -> float:
         """Turn until current_direction() (returns ship vector, target vector) line up. Returns the final angle in degrees."""
-        max_speed = max_rpm / RAD_S_TO_RPM
-        deadline = time.monotonic() + timeout_s
-        while True:
+
+        async def error() -> tuple[Vec, float, dict]:
             vector, target = await current_direction()
-            angle = angle_between(vector, target)
             m = await self.motion()
-            if math.degrees(angle) < tolerance_deg and length(m["angularVelocity"]) < 0.01:
-                return math.degrees(angle)
-            if time.monotonic() > deadline:
-                raise SteeringError(f"Gave up after {timeout_s:.0f} s, still {math.degrees(angle):.1f} deg off.")
-            # Spin about vector x target, slowing down as the angle closes. Pointing straight away has no cross
-            # product, so any axis at right angles does.
-            speed = min(0.6 * angle, max_speed)
+            # Spin about vector x target. Pointing straight away has no cross product, so any axis at right angles does.
             axis = cross(vector, target)
-            w = [x * speed for x in (normalize(axis) if length(axis) > 1e-3 else perpendicular(vector))]
-            gyros_now = {g["id"]: g for g in m["gyros"]}
-            for g in self.gyros:
-                await self._set(g["id"], **self.commands(w, gyros_now.get(g["id"], g)))
-            await asyncio.sleep(self.step_s)
+            return (normalize(axis) if length(axis) > 1e-3 else perpendicular(vector)), angle_between(vector, target), m
+
+        return await self._turn(error, max_rpm, tolerance_deg, timeout_s)
 
     async def orient(
         self,
@@ -200,21 +227,53 @@ class Steering:
     ) -> float:
         """Turn until target(grid.motion) (returns current forward, up, wanted forward, up) line up: forward and
         roll both. Returns the final angle in degrees."""
-        max_speed = max_rpm / RAD_S_TO_RPM
-        deadline = time.monotonic() + timeout_s
-        while True:
+
+        async def error() -> tuple[Vec, float, dict]:
             m = await self.motion()
             axis, angle = attitude_error(*target(m))
-            if math.degrees(angle) < tolerance_deg and length(m["angularVelocity"]) < 0.01:
+            return axis, angle, m
+
+        return await self._turn(error, max_rpm, tolerance_deg, timeout_s)
+
+    async def _turn(self, error: Callable[[], Awaitable[tuple[Vec, float, dict]]], max_rpm: float,
+                    tolerance_deg: float, timeout_s: float) -> float:
+        """The turn loop: error() gives the axis and angle still to turn. Spins up as fast as allowed, measuring how
+        quickly the ship gains spin, then follows a braking curve in (turn_speed). Records spin_up and overshoot_deg."""
+        max_speed = max_rpm / RAD_S_TO_RPM
+        began = time.monotonic()
+        deadline = began + timeout_s
+        commanded, closest, last = 0.0, math.inf, began
+        while True:
+            axis, angle, m = await error()
+            now = time.monotonic()
+            delay, last = max(now - last, self.step_s), now  # how long a command stands before the next one
+            w_now = m["angularVelocity"]
+            if math.degrees(angle) < tolerance_deg and length(w_now) < 0.01:
                 return math.degrees(angle)
-            if time.monotonic() > deadline:
+            if now > deadline:
                 raise SteeringError(f"Gave up after {timeout_s:.0f} s, still {math.degrees(angle):.1f} deg off.")
-            speed = min(0.6 * angle, max_speed)
-            w = [x * speed for x in axis]
+            # Past the goal, the angle grows again from the closest it got.
+            closest = min(closest, angle)
+            if closest < math.radians(3 * tolerance_deg):
+                self.overshoot_deg = max(self.overshoot_deg, math.degrees(angle - closest))
+            self.spin_up.sample(now - began, dot(w_now, axis), commanded)
+            accel = self.spin_up.accel if self.spin_up.done else None
+            commanded = turn_speed(angle, max_speed, accel, delay, gain=1.0 if accel else 0.6)
+            w = [x * commanded for x in axis]
             gyros_now = {g["id"]: g for g in m["gyros"]}
             for g in self.gyros:
                 await self._set(g["id"], **self.commands(w, gyros_now.get(g["id"], g)))
             await asyncio.sleep(self.step_s)
+
+    def report(self) -> str:
+        """How the turn went, for the result text: the measured spin-up rate and any overshoot."""
+        parts = []
+        if self.spin_up.accel:
+            parts.append(f"It gains spin at {math.degrees(self.spin_up.accel):.1f} deg/s^2")
+        if self.overshoot_deg >= 1:
+            parts.append(f"overshot by {self.overshoot_deg:.1f} deg")
+        text = ", ".join(parts)
+        return f" {text[:1].upper()}{text[1:]}." if parts else ""
 
 
 def perpendicular_overrides(direction: Vec, gyro: dict) -> tuple[str, ...]:
@@ -323,7 +382,7 @@ async def rotate_ship(bridge: Bridge, grid_id: str, yaw: float = 0, pitch: float
         return f"Stopped: {e} Gyros released."
     finally:
         await steering.release()
-    return f"Turned {math.degrees(total):.0f} deg (now {end:.1f} deg off the goal). Gyros released."
+    return f"Turned {math.degrees(total):.0f} deg (now {end:.1f} deg off the goal).{steering.report()} Gyros released."
 
 
 async def point_ship(bridge: Bridge, grid_id: str, target: Vec, face_local: Vec, origin_local: Vec,
@@ -352,7 +411,7 @@ async def point_ship(bridge: Bridge, grid_id: str, target: Vec, face_local: Vec,
         return f"Stopped: {e} Gyros released."
     finally:
         await steering.release()
-    return f"Turned {start:.0f} deg; now {end:.1f} deg off, target {length(toward):.0f} m away. Gyros released."
+    return f"Turned {start:.0f} deg; now {end:.1f} deg off, target {length(toward):.0f} m away.{steering.report()} Gyros released."
 
 
 async def turn_to(bridge: Bridge, grid_id: str, current_direction: Callable[[], Awaitable[tuple[Vec, Vec]]],
@@ -374,4 +433,4 @@ async def turn_to(bridge: Bridge, grid_id: str, current_direction: Callable[[], 
         return f"Stopped: {e} Gyros released."
     finally:
         await steering.release()
-    return f"Turned the ship {start:.0f} deg (now {end:.1f} deg off). Gyros released."
+    return f"Turned the ship {start:.0f} deg (now {end:.1f} deg off).{steering.report()} Gyros released."

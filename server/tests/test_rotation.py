@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 import pytest
 
@@ -82,3 +83,62 @@ def test_frame_prefers_the_cockpit():
          "cockpit": {"name": "Helm", "forward": [1, 0, 0], "up": [0, 1, 0]}}
     f = frame_of(m)
     assert f["ref"] == "Helm" and close(f["right"], [0, 0, 1])
+
+
+def test_turn_speed_never_outruns_the_brakes():
+    # Far out it's the speed cap; near the goal, the proportional ease-in.
+    assert steering.turn_speed(3.0, 0.5) == 0.5
+    assert steering.turn_speed(0.1, 0.5) == pytest.approx(0.06)
+    # A weak ship (0.1 rad/s^2) is held to what it can stop from: v^2/2a (plus the loop's delay) within the angle.
+    v = steering.turn_speed(0.5, 2.0, accel=0.1, delay=0.3, gain=1.0)
+    a = 0.1 * 0.7
+    assert v * 0.3 + v * v / (2 * a) == pytest.approx(0.5)
+    assert v < steering.turn_speed(0.5, 2.0, gain=1.0)
+
+
+def test_spin_up_reads_the_acceleration_until_near_full_speed():
+    s = steering.SpinUp()
+    s.sample(0.0, 0.0, 0.0)
+    s.sample(0.5, 0.1, 1.0)
+    assert s.accel == pytest.approx(0.2) and not s.done
+    s.sample(1.0, 0.2, 1.0)
+    s.sample(4.0, 0.8, 1.0)
+    assert s.accel == pytest.approx(0.2) and s.done
+    s.sample(5.0, 0.0, 1.0)  # braking later doesn't change it
+    assert s.accel == pytest.approx(0.2)
+
+
+class HeavyShip(CentredShip):
+    """Gyros too weak for the ship: spin changes at most ACCEL rad/s^2 (in wall-clock time) toward the overrides."""
+
+    ACCEL = 0.1
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.w = [0.0, 0.0, 0.0]
+        self.t = time.monotonic()
+
+    def omega(self):
+        return self.w
+
+    def step(self):
+        now = time.monotonic()
+        dt, self.t = now - self.t, now
+        want = SimShip.omega(self)
+        diff = [want[i] - self.w[i] for i in range(3)]
+        n = math.sqrt(sum(x * x for x in diff))
+        k = min(1.0, self.ACCEL * dt / n) if n > 0 else 0
+        self.w = [self.w[i] + diff[i] * k for i in range(3)]
+        speed = math.sqrt(sum(x * x for x in self.w))
+        if speed > 0:
+            axis = [x / speed for x in self.w]
+            for name in self.basis:
+                self.basis[name] = steering.rotate(self.basis[name], axis, math.degrees(speed * dt))
+
+
+async def test_heavy_ship_brakes_in_time_instead_of_overshooting():
+    ship = HeavyShip()
+    async with FakeGame(ship.handlers()) as game:
+        text = await steering.rotate_ship(Bridge(port=game.port, token=TOKEN), SHIP, yaw=90, max_rpm=6)
+    assert "gains spin at" in text and "overshot" not in text, text
+    assert angle_between(ship.basis["forward"], [1, 0, 0]) < math.radians(1.5)
