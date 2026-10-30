@@ -18,6 +18,8 @@ namespace SEMcp.Host
         // Off by default: firing weapons needs an explicit opt-in.
         public bool AllowWeapons { get; set; }
         public double MaxRangeMeters { get; set; } = 50000;
+        // Chat lines starting with this prefix go privately to the assistant (see ChatInbox); empty turns it off.
+        public string ChatPrefix { get; set; } = "/ai";
 
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {

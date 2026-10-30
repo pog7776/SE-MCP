@@ -11,7 +11,8 @@ namespace SEMcp.Host
 {
     // Created by the loader on every (re)load. Owns the config, the TCP server and the game-thread queue.
     // Rule that keeps hot reload safe: never subscribe to game events or register anything with the game;
-    // everything reaches the game through the queue drained in Update().
+    // everything reaches the game through the queue drained in Update(). The exception is ChatInbox, which hooks
+    // chat in Start() and unhooks it in Stop().
     public sealed class HostModule : IHostModule
     {
         private const double FrameBudgetMs = 2;
@@ -22,6 +23,7 @@ namespace SEMcp.Host
         private Dispatcher dispatcher;
         private TcpServer server;
         private CameraCapture capture;
+        private ChatInbox chat;
 
         public void Start(ILoaderContext context)
         {
@@ -54,6 +56,11 @@ namespace SEMcp.Host
             ToolbarMethods.Register(dispatcher);
             OverlayMethods.Register(dispatcher);
             StartCapture();
+            if (!string.IsNullOrWhiteSpace(config.ChatPrefix))
+            {
+                chat = new ChatInbox(config.ChatPrefix, Log);
+                chat.Start();
+            }
 
             server = new TcpServer(config.Port, config.Token, Handle, Log);
             server.Start();
@@ -67,6 +74,8 @@ namespace SEMcp.Host
         public void Stop()
         {
             server?.Stop();
+            chat?.Stop();
+            chat = null;
             HostMethods.ClearAllHighlights();
             OverlayMethods.Close();
             capture?.Dispose();
@@ -87,6 +96,11 @@ namespace SEMcp.Host
                     return Task.FromResult<JsonNode>(new JsonObject { ["reloading"] = true });
                 case "camera.capture":
                     return CaptureMethod.Run(parameters, dispatcher, queue, capture, config.AllowScreenshots);
+                case "chat.poll":
+                    // Long poll, so it waits here rather than on the game thread.
+                    if (chat == null)
+                        throw new RpcException(ErrorKind.FeatureDisabled, "In-game chat is off (chatPrefix is empty in config.json)");
+                    return chat.Poll(parameters);
             }
 
             return queue.Run(() => Rpc.ToNode(dispatcher.Dispatch(method, parameters)));

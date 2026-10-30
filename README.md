@@ -75,6 +75,17 @@ The repo's [.mcp.json](.mcp.json) registers it for Claude Code in this folder. E
 
 Poke at it by hand with `npx @modelcontextprotocol/inspector`.
 
+## In-game chat
+
+Type `/ai <message>` in the game chat to talk to the assistant (only you see it; `/ai reset` starts a fresh conversation). Something has to answer, so run the chat runner while you play:
+
+```bash
+cd server
+uv run se-mcp-runner     # options: --model, --timeout, --claude <path to claude CLI>
+```
+
+Each message starts a headless Claude Code turn (`claude -p`, on your Claude plan) with only this MCP server's tools, resuming one conversation (reset after 3 h idle). The reply comes back as a chat line from "Suit AI" on foot or "Ship AI" when seated. The runner keeps its state in `%AppData%\SpaceEngineers\SEMcp\runner\`.
+
 ## Decompiled reference
 
 `ref/decompiled/` (gitignored) holds ilspycmd output for the game DLLs, to look up real API names. Regenerate after a game update:

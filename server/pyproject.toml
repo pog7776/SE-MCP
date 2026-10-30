@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 se-mcp = "se_mcp:main"
+se-mcp-runner = "se_mcp.runner:main"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

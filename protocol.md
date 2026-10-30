@@ -6,7 +6,7 @@ The protocol between the Python MCP server and the in-game plugin. Keep this in 
 
 - TCP on `127.0.0.1:<port>` (default `8765`, from `config.json`).
 - UTF-8, one JSON object per line (`\n`), in both directions.
-- One client at a time. A new connection closes the previous one.
+- Several clients at once (an MCP session, the chat runner and the sessions it starts). Each authenticates on its own.
 - Requests may be pipelined. Responses can arrive out of order, so match them by `id`.
 
 ## Config
@@ -15,8 +15,11 @@ The protocol between the Python MCP server and the in-game plugin. Keep this in 
 
 ```json
 { "port": 8765, "token": "...", "readOnly": false, "allowPbCodePush": true,
-  "allowAutopilot": true, "allowScreenshots": true, "allowWeapons": false, "maxRangeMeters": 50000 }
+  "allowAutopilot": true, "allowScreenshots": true, "allowWeapons": false, "maxRangeMeters": 50000,
+  "chatPrefix": "/ai" }
 ```
+
+`chatPrefix` empty turns in-game chat off (see `chat.poll`).
 
 ## Messages (JSON-RPC 2.0)
 
@@ -275,6 +278,13 @@ How it works (`CameraCapture.cs`):
 - The patch is removed when the host stops, including on hot reload.
 
 The approach comes from the CameraLCD plugin.
+
+`chat.poll` collects private chat for the assistant (`ChatInbox.cs`). The host hooks `MyAPIGateway.Utilities.MessageEntered` (unhooked in `Stop()`). A line that is the prefix, or starts with the prefix and a space, gets `sendToOthers = false`, is echoed back to the local chat (the game hides it otherwise) and is queued.
+- Params: `waitMs?` (0–30000, default 0): how long to wait when nothing is queued. Answered off the game thread.
+- Returns `prefix` and `messages[]`: `id`, `text` (without the prefix), `player`, `persona` (`ship` when seated in a cockpit/seat/RC, else `suit`), `ship?`, `shipId?`, `at` (UTC, ISO 8601).
+- If nobody has polled in the last ~75 s, the player is told to start the runner and nothing is queued. The bare prefix shows a help line. At most 20 messages wait.
+- `feature_disabled` when `chatPrefix` is empty.
+- Replies go back with `notify` (`kind: chat`). The runner (`se-mcp-runner`) is the intended poller: two pollers would split the messages.
 
 Params: `blockId` (a camera block, at its zoom), or `position` + `forward` (+ `up?`, `fovDegrees?`=70) for a free viewpoint within `maxRangeMeters`, or neither for the player's view without HUD. Optional: `width?`=1280 and `height?` (16:9 by default, max 1920 each), `fovDegrees?`, `format?` (`jpeg` or `png`).
 

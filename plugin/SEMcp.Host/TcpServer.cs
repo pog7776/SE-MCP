@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -10,8 +11,8 @@ using System.Threading.Tasks;
 
 namespace SEMcp.Host
 {
-    // Newline-delimited JSON-RPC 2.0 over TCP on 127.0.0.1. One client at a time;
-    // a new connection replaces the old one. The first message must be auth.
+    // Newline-delimited JSON-RPC 2.0 over TCP on 127.0.0.1. Several clients at once (an MCP session, the chat
+    // runner and the sessions it starts); each one's first message must be auth.
     public sealed class TcpServer
     {
         private readonly int port;
@@ -21,7 +22,7 @@ namespace SEMcp.Host
         private readonly CancellationTokenSource stopping = new CancellationTokenSource();
 
         private TcpListener listener;
-        private TcpClient client;
+        private readonly ConcurrentDictionary<TcpClient, byte> clients = new ConcurrentDictionary<TcpClient, byte>();
 
         public TcpServer(int port, string token, Func<string, JsonObject, Task<JsonNode>> handle, Action<string> log)
         {
@@ -43,7 +44,8 @@ namespace SEMcp.Host
         {
             stopping.Cancel();
             try { listener?.Stop(); } catch { }
-            Interlocked.Exchange(ref client, null)?.Close();
+            foreach (var connection in clients.Keys)
+                connection.Close();
         }
 
         private async Task AcceptLoop()
@@ -66,7 +68,7 @@ namespace SEMcp.Host
                 }
 
                 accepted.NoDelay = true;
-                Interlocked.Exchange(ref client, accepted)?.Close();
+                clients[accepted] = 0;
                 _ = Task.Run(() => Serve(accepted));
             }
         }
@@ -89,7 +91,7 @@ namespace SEMcp.Host
 
                 if (!await Authenticate(reader, Send).ConfigureAwait(false))
                     return;
-                log("Client connected");
+                log($"Client connected ({clients.Count} open)");
 
                 string line;
                 while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
@@ -117,8 +119,8 @@ namespace SEMcp.Host
             finally
             {
                 connection.Close();
-                if (Interlocked.CompareExchange(ref client, null, connection) == connection)
-                    log("Client disconnected");
+                if (clients.TryRemove(connection, out _))
+                    log($"Client disconnected ({clients.Count} open)");
             }
         }
 

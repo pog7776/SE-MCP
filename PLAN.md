@@ -394,6 +394,8 @@ Instead of each tool deciding on its own what it's allowed to see, a single awar
 
 Goal: chat with the assistant from inside the game, privately, and have it speak up on its own when something needs attention.
 
+- ✅ **Pulled forward (2026-10-30): `/ai` chat and the runner.** `ChatInbox` (host) catches `/ai ...` lines and queues them for `chat.poll` (long poll). The TCP server now takes several clients at once. `se-mcp-runner` (server/runner.py) answers each line with `claude -p` (only this server's tools, one resumed conversation, `/ai reset`), replying as "Suit AI"/"Ship AI". Still to do from the list below: the event stream and alerts, in-game triggers, voice, and a Comms-tab "Suit AI" conversation (would take over the game's ChatBot channel with a Harmony patch).
+
 - **Private chat channel.** The host hooks the game's chat-entered event (`MyAPIGateway.Utilities.MessageEntered`, verify the current signature) and catches messages with a prefix (configurable, e.g. `/ai`). It sets `sendToOthers = false` so they never reach other players, and queues them for the client. Replies use `notify` with `kind: chat`, which is shown only locally. The host must unsubscribe in `Stop()` so hot reload stays safe (an exception to the "no game events" rule, handled explicitly).
 - **Event stream.** Server→client notifications (`{"method":"event"}`, reserved in protocol.md) for chat messages and alerts: low O₂/H₂/energy, damage, power running out, docking/undocking, a production block stalling, PB errors. Thresholds go in config. The host polls cheaply on the game thread (e.g. once per second), not per frame.
 - **In-game triggers.** Let the ship itself call the AI, so players can wire it up with vanilla blocks:
