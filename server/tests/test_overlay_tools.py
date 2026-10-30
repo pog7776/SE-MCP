@@ -77,3 +77,15 @@ async def test_ship_panel_tool_and_clear():
     assert "Unknown gauge" in await call("hud_ship_panel", {"show": ["warp"]}, [])
     assert await call("hud_clear", {}, []) == "Cleared 0 HUD element(s)."
     assert await call("hud_list", {}, []) == "Nothing drawn on the HUD."
+
+
+async def test_hud_track_defaults_and_label():
+    calls: list = []
+    text = await call("hud_track", {"what": ["Enemies", "neutrals"], "incoming": True}, calls)
+    e = calls[0]["elements"][0]
+    assert e["id"] == "track-enemies-neutrals" and e["kind"] == "track" and e["track"] == ["enemies", "neutrals"]
+    assert e["color"] == "#FF5050" and e["incoming"] is True and e["text"] == "{name} {dist}"
+    assert text.startswith("Tracking enemies, neutrals (incoming only) within 3000 m as 'track-enemies-neutrals'.")
+    calls.clear()
+    await call("hud_track", {"what": ["meteors"]}, calls)
+    assert calls[0]["elements"][0]["color"] == "#FFB74D"

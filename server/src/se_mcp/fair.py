@@ -142,6 +142,7 @@ TOOLS.update({
 TOOLS.update({
     "hud_draw": Fairness("own", None, "a HUD aid shown only to the player; markers on things you can't see are M8's to filter"),
     "hud_ship_panel": Fairness("own", None, "a HUD aid shown only to the player"),
+    "hud_track": Fairness("omniscient", None, "boxes enemies/meteors anywhere in range; fair mode: only what antennas, cameras, sensors or turrets see"),
     "hud_remove": Fairness("own", None),
     "hud_clear": Fairness("own", None),
     "hud_list": Fairness("own", None),

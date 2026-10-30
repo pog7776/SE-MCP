@@ -365,15 +365,24 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
     @tool
     async def hud_draw(elements: list[dict[str, Any]]) -> str:
         """Draw on the player's HUD (only they see it; hidden with the HUD and while a menu or terminal is open).
-        Each element: {"id", "kind": "text"|"rect"|"bar"|"marker", ...}. Setting an existing id changes only the
-        fields given, so you can move, recolour or retext it.
+        Each element: {"id", "kind": "text"|"rect"|"bar"|"line"|"arrow"|"circle"|"icon"|"marker", ...}. Setting an
+        existing id changes only the fields given, so you can move, recolour or retext it.
         - Position: x, y = fractions of the screen (0,0 top-left; 1,1 bottom-right); w, h for rect and bar.
+        - line/arrow: from (x, y) to (x2, y2), or to a block/grid/position (arrow points at it, from the screen
+          edge if it's off screen). thickness in px.
+        - circle: centre x, y (or a block/grid/position), radius w (fraction of screen height).
+        - icon: icon = battery, energy, hydrogen, oxygen, health, health-low, jetpack, dampeners, handbrake, light,
+          mass, radiation, suffocating, temperature, food, gravity, broadcast, power, speed, inventory, chat, lock,
+          camera, enemy, friendly, neutral, gps, alert, self, square (or a "Textures\\..." path); size w; tinted by
+          color; at x, y or on a block/grid/position.
         - text: may hold {path} placeholders read from the bound data ("{hydrogen.fill}"), {pct} for a bar's
           percentage, {dist} for a marker's distance. scale (0.6 small .. 1.2 big), align left|center|right,
           font "White"|"Red"|"Green"|"Blue"|"Monospace".
         - color "#RRGGBB[AA]"; background for text/bar; rect: fill true|false, thickness (px).
         - bar: value + max, or valuePath/maxPath from the bound data; lowBelow (percent) + lowColor to warn.
-        - marker: a box and label pinned to a world spot: block or grid (name/id), or position [x, y, z].
+        - marker: corner brackets round a block or grid (name/id) as it appears on screen, or a small box on a
+          position [x, y, z]; style "point" for the small box on anything. Off screen, an arrow at the screen edge
+          points to it (offscreen: false to hide). For boxes round every meteor/enemy/ship use hud_track.
         - bind: {"method": "ship.hud", "params": {"grid": "Red Ship"}, "every": 1} re-reads a read-only method
           every few seconds so the element stays live (ship.hud, grid.get, character.status, inventory.get, ...).
         - ttl: seconds until it disappears on its own.
@@ -415,6 +424,27 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         return f"Panel '{prefix}' for {target.get('name') or 'the ship'} is on the HUD ({len(elements)} elements, live)."
 
     @tool
+    async def hud_track(what: list[str], id: str | None = None, range: float = 3000, incoming: bool = False,
+                        color: str | None = None, label: str = "{name} {dist}", style: str = "box",
+                        offscreen: bool = True, max_targets: int = 30) -> str:
+        """Keep a box round every thing of a kind near the player, live (re-scanned twice a second): new ones get
+        boxed, gone ones drop off. what: any of meteors, missiles, enemies, neutrals, friends, unowned, grids (every
+        ship), players. "Unfriendlies" = enemies (add neutrals if they mean anyone not on our side).
+        incoming=True keeps only things closing in on the player. label placeholders: {name}, {dist}, {speed},
+        {eta} (seconds until it reaches us at its closing speed). Off-screen ones get an arrow at the screen edge.
+        Range is capped by the plugin's maxRangeMeters. Remove with hud_remove(id) or hud_clear."""
+        kinds = [w.strip().lower() for w in what if w.strip()]
+        eid = id or "track-" + "-".join(kinds)
+        default = "#FF5050" if {"enemies", "missiles"} & set(kinds) else "#FFB74D" if "meteors" in kinds else "#7CFC00"
+        r = await bridge.call("overlay.set", {"elements": [{
+            "id": eid, "kind": "track", "track": kinds, "range": range, "incoming": incoming, "color": color or default,
+            "text": label, "style": style, "offscreen": offscreen, "maxTargets": max_targets, "scale": 0.6}]})
+        listed = (await bridge.call("overlay.list", {}))["elements"]
+        count = next((e.get("tracking") for e in listed if e["id"] == eid), None)
+        now = "" if count is None else f" Right now: {count} in range (first scan may still be running)." if count == 0 else f" Right now: {count}."
+        return f"Tracking {', '.join(kinds)}{' (incoming only)' if incoming else ''} within {range:g} m as '{r['set'][0]}'.{now}"
+
+    @tool
     async def hud_remove(ids: list[str]) -> str:
         """Remove HUD overlay elements by id. A panel's id removes all its parts."""
         listed = (await bridge.call("overlay.list", {}))["elements"]
@@ -439,6 +469,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
             line = f"{e['id']}: {e['kind']} at ({e['x']:.3f}, {e['y']:.3f})"
             if e.get("text"):
                 line += f" \"{e['text']}\""
+            if e.get("track"):
+                line = f"{e['id']}: tracking {', '.join(e['track'])} ({e.get('tracking', 0)} boxed)"
             if e.get("bind"):
                 line += f", live from {e['bind']}"
             if e.get("bindError"):

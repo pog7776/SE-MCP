@@ -20,7 +20,28 @@ namespace SEMcp.Host
             "dock.get", "weapons.get", "sun.info", "environment.get", "sensors.get", "damage.get", "radio.antennas", "block.get",
         };
 
-        private static readonly string[] Kinds = { "text", "rect", "bar", "marker" };
+        private static readonly string[] Kinds = { "text", "rect", "bar", "line", "arrow", "circle", "icon", "marker", "track" };
+
+        // What a tracker can follow.
+        private static readonly string[] Trackable = { "meteors", "missiles", "enemies", "neutrals", "friends", "unowned", "grids", "players" };
+
+        // Short icon names for game textures; any "Textures\..." path also works.
+        private const string Hud = "Textures\\GUI\\Icons\\HUD 2017\\";
+        private static readonly Dictionary<string, string> Icons = new Dictionary<string, string>
+        {
+            ["battery"] = Hud + "Battery.png", ["energy"] = Hud + "EnergyIcon.png", ["hydrogen"] = Hud + "HydrogenIcon.png",
+            ["oxygen"] = Hud + "OxygenIcon.png", ["health"] = Hud + "HealthIcon.png", ["health-low"] = Hud + "HealthLow.png",
+            ["jetpack"] = Hud + "Jetpack.png", ["dampeners"] = Hud + "DampenersOn.png", ["handbrake"] = Hud + "Handbrake.png",
+            ["light"] = Hud + "Light.png", ["mass"] = Hud + "Mass.png", ["radiation"] = Hud + "RadiationIcon.png",
+            ["suffocating"] = Hud + "Suffocating.png", ["temperature"] = Hud + "OusideTemp.png", ["food"] = Hud + "FoodIcon.png",
+            ["gravity"] = Hud + "GravityIndicator.png", ["broadcast"] = Hud + "BroadcastingOn.png", ["power"] = Hud + "GridPowerOn.png",
+            ["speed"] = Hud + "Speedometer.png", ["inventory"] = Hud + "InventoryCapacity.png", ["chat"] = Hud + "Chat.png",
+            ["lock"] = "Textures\\GUI\\Icons\\Lock.png", ["camera"] = "Textures\\GUI\\Icons\\Camera.dds",
+            ["enemy"] = "Textures\\HUD\\marker_enemy.dds", ["friendly"] = "Textures\\HUD\\marker_friendly.dds",
+            ["neutral"] = "Textures\\HUD\\marker_neutral.dds", ["gps"] = "Textures\\HUD\\marker_gps.dds",
+            ["alert"] = "Textures\\HUD\\marker_alert.dds", ["self"] = "Textures\\HUD\\marker_self.dds",
+            ["square"] = "Textures\\GUI\\Blank.dds",
+        };
 
         private static OverlayScreen screen;
         private static Dispatcher dispatcher;
@@ -41,7 +62,8 @@ namespace SEMcp.Host
             if (screen == null || !screen.IsOpen)
             {
                 var old = screen?.Elements;
-                screen = new OverlayScreen((method, parameters) => Rpc.ToNode(dispatcher.Dispatch(method, parameters)));
+                screen = new OverlayScreen((method, parameters) => Rpc.ToNode(dispatcher.Dispatch(method, parameters)),
+                    new Access(dispatcher), dispatcher.Context.MaxRangeMeters);
                 if (old != null)
                     foreach (var pair in old)
                         screen.Elements[pair.Key] = pair.Value;
@@ -65,6 +87,12 @@ namespace SEMcp.Host
                 Apply(access, e, o);
                 if (!Kinds.Contains(e.Kind))
                     throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': kind must be one of {string.Join(", ", Kinds)}");
+                if (e.Kind == "icon" && e.Texture == null)
+                    throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': an icon needs icon (a name or Textures\\... path)");
+                if (e.Kind == "track" && e.TrackWhat.Count == 0)
+                    throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': a tracker needs track ({string.Join(", ", Trackable)})");
+                if (e.Kind == "marker" && e.AnchorEntity == 0 && e.Anchor == null)
+                    throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': a marker needs blockId, gridId or position");
                 s.Elements[id] = e;
                 set.Add(id);
             }
@@ -80,6 +108,29 @@ namespace SEMcp.Host
             e.Y = MathHelper.Clamp(F("y", e.Y), 0, 1);
             e.W = MathHelper.Clamp(F("w", e.W), 0, 1);
             e.H = MathHelper.Clamp(F("h", e.H), 0, 1);
+            e.X2 = MathHelper.Clamp(F("x2", e.X2), 0, 1);
+            e.Y2 = MathHelper.Clamp(F("y2", e.Y2), 0, 1);
+            e.Style = o.String("style") ?? e.Style;
+            e.Offscreen = o.Bool("offscreen", e.Offscreen);
+            if (o["icon"] != null)
+            {
+                string icon = o.String("icon");
+                e.Texture = Icons.TryGetValue(icon.ToLowerInvariant(), out string path) ? path
+                    : icon.StartsWith("Textures\\", StringComparison.OrdinalIgnoreCase) || icon.StartsWith("Textures/", StringComparison.OrdinalIgnoreCase) ? icon.Replace('/', '\\')
+                    : throw new RpcException(ErrorKind.InvalidParams, $"Unknown icon '{icon}'. Names: {string.Join(", ", Icons.Keys)}, or a Textures\\... path");
+            }
+            if (o["track"] != null)
+            {
+                var what = o["track"] is JsonArray a ? a.Select(n => n.ToString().ToLowerInvariant()).ToList() : new List<string> { o.String("track").ToLowerInvariant() };
+                var unknown = what.Where(w => !Trackable.Contains(w)).ToList();
+                if (unknown.Count > 0)
+                    throw new RpcException(ErrorKind.InvalidParams, $"Can't track {string.Join(", ", unknown)}. Choose from: {string.Join(", ", Trackable)}");
+                e.TrackWhat = new HashSet<string>(what);
+                e.NextScan = DateTime.MinValue;
+            }
+            e.Range = MathHelper.Clamp(o.Number("range", e.Range), 1, 100000);
+            e.IncomingOnly = o.Bool("incoming", e.IncomingOnly);
+            e.MaxTargets = (int)MathHelper.Clamp(o.Number("maxTargets", e.MaxTargets), 1, 200);
             if (o.ContainsKey("text"))
                 e.Text = o.String("text");
             if (o["color"] != null)
@@ -114,7 +165,7 @@ namespace SEMcp.Host
                 e.AnchorEntity = access.Block(o.Id("blockId")).EntityId;
                 e.Anchor = null;
             }
-            else if (o["gridId"] != null && e.Kind == "marker")
+            else if (o["gridId"] != null)
             {
                 e.AnchorEntity = access.Grid(o.Id("gridId")).EntityId;
                 e.Anchor = null;
@@ -168,6 +219,8 @@ namespace SEMcp.Host
                 bind = e.BindMethod,
                 bindError = e.BindError,
                 anchored = e.AnchorEntity != 0 || e.Anchor != null,
+                track = e.Kind == "track" ? e.TrackWhat.ToList() : null,
+                tracking = e.Kind == "track" ? e.Tracked.Count : (int?)null,
                 expiresIn = e.Expires is DateTime t ? Math.Round((t - DateTime.UtcNow).TotalSeconds) : (double?)null,
             }).ToList(),
         };

@@ -345,7 +345,8 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
 - **The assistant's own UI**: the plugin has full access to the game's GUI (`MyGuiSandbox`, `MyGuiScreenBase`, HUD drawing).
   - Possible pieces: a chat/console window for talking to the AI (pairs with M10), confirmation prompts ("Organize the cargo? Yes/No"), HUD overlays (text, markers, bars), and highlights that point at things.
   - ✅ **HUD overlay** (pulled forward from M11, verified in game): `hud_draw` (text, boxes, bars, world markers pinned to a block/grid/position; upsert by id; `bind` to a read-only method keeps it live; `ttl`), `hud_ship_panel` (live H2/O2/battery/uranium/cargo/speed panel, bars go red when low), `hud_remove`, `hud_clear`, `hud_list`. A focus-less `MyGuiScreenBase` above the HUD, closed on host stop.
-    - Next: lines/arrows (rotated sprites), icons from the HUD atlas, an off-screen arrow for markers behind you, progress/countdown helpers, and a shared layout so panels don't overlap.
+    - ✅ Lines, arrows (also pinned to a block/grid/position, sliding to the screen edge when it's off screen), circles, icons (named HUD/marker textures or any texture path), corner-bracket boxes round things, edge arrows for off-screen targets, and `hud_track` (live boxes round every meteor/missile/enemy/neutral/friend/ship/player in range, `incoming` filter, {eta} label). Verified in game.
+    - Next: progress/countdown helpers, block/item icons from their definitions, a shared layout so panels don't overlap, and warnings that flash.
     - Fair play (M8): markers on things the player can't sense should be filtered like `list_grids`.
   - Hot reload: open screens must be closed in `Stop()`.
   - Our own HUD drawing only. Text HUD API (workshop 758597413) was considered and dropped.
