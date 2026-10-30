@@ -17,7 +17,7 @@ import math
 from typing import Any, Callable
 
 from .bridge import Bridge
-from .steering import RAD_S_TO_RPM, Steering, angle_between, cross, dot, length, normalize
+from .steering import RAD_S_TO_RPM, Steering, angle_between, cross, dot, frame_of, length, normalize
 
 Vec = list[float]
 
@@ -98,11 +98,11 @@ class ConnectorPilot:
         await self.steering.calibrate(("Pitch", "Yaw", "Roll"))
         await self.bridge.call("flight.set", {"gridId": self.ship_id, "dampeners": False})
 
-    async def stop(self, docked: bool = False) -> None:
-        """Release every override and turn the dampeners back on; once docked, thrusters go back off if that's
-        how the ship was parked."""
+    async def stop(self, docked: bool = False, park: bool = False) -> None:
+        """Release every override and turn the dampeners back on. Once docked, thrusters go off when `park` (a
+        docked ship's thrusters fight its carrier's), or else if that's how the ship was parked before."""
         params: dict[str, Any] = {"gridId": self.ship_id, "release": True, "dampeners": True}
-        if docked and (not getattr(self, "thrusters_were_on", True) or self.ship_id in PARKED_WITH_THRUSTERS_OFF):
+        if docked and (park or not getattr(self, "thrusters_were_on", True) or self.ship_id in PARKED_WITH_THRUSTERS_OFF):
             params["thrustersOn"] = False
             PARKED_WITH_THRUSTERS_OFF.discard(self.ship_id)
         await self.bridge.call("flight.set", params)
@@ -200,14 +200,7 @@ def gear_face(gear: dict[str, Any]) -> Vec:
     return scale(gear["up"], -1)
 
 
-def ship_frame(m: dict[str, Any]) -> dict[str, Any]:
-    """Which way is forward/up/right on a ship, from grid.motion: the cockpit's view if it has one, else the grid's
-    own axes (stations). center is the middle of the ship's bounding box."""
-    cp = m.get("cockpit")
-    if cp:
-        return {"center": m["center"], "forward": cp["forward"], "up": cp["up"], "right": cross(cp["forward"], cp["up"]),
-                "ref": cp["name"]}
-    return {"center": m["center"], "forward": m["forward"], "up": m["up"], "right": m["right"], "ref": None}
+ship_frame = frame_of
 
 
 def facing(direction: Vec, frame: dict[str, Any]) -> str:

@@ -154,6 +154,8 @@ TOOLS.update({
     "ai_soul": Fairness("own", None, "the companion's personality file; not game state"),
     "write_ai_soul": Fairness("own", None, "writes the personality file outside the game"),
     "rename_blocks": Fairness("own", "construct"),
+    "rotate_ship": Fairness("own", "construct"),
+    "point_ship": Fairness("own", "construct", "the target's position must be known: radio, GPS or sensed"),
     "ai_soul_presets": Fairness("own", None, "packaged personality files"),
     "use_ai_soul": Fairness("own", None, "writes the personality file outside the game"),
     "watch": Fairness("own", None, "reads what its method reads; same fairness as that method"),

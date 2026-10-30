@@ -1196,6 +1196,64 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         target = await resolve.grid(bridge, grid)
         return await align(bridge, target["id"], max_rpm=max_rpm, force=force)
 
+    @tool
+    async def rotate_ship(yaw_deg: float = 0, pitch_deg: float = 0, roll_deg: float = 0, grid: str | None = None,
+                          max_rpm: float = 2.0, force: bool = False) -> str:
+        """Turn a ship in place by angles, as its pilot sees it: yaw_deg > 0 turns right, pitch_deg > 0 raises the
+        nose, roll_deg > 0 rolls right (180 yaw = turn around). Uses gyro overrides with a short test spin first,
+        holds the other axes, then lets go. Doesn't move the ship, but check clearance first near structures (it
+        swings its whole length). Refuses in natural gravity unless force=True. To face something, use point_ship."""
+        from . import steering
+
+        ship = await resolve.grid(bridge, grid)
+        if stop := reminders.gate(await _ship_name(grid)):
+            return stop
+        return await steering.rotate_ship(bridge, ship["id"], yaw_deg, pitch_deg, roll_deg, max_rpm=max_rpm, force=force)
+
+    @tool
+    async def point_ship(target: str, face: str = "forward", grid: str | None = None, max_rpm: float = 2.0,
+                         force: bool = False) -> str:
+        """Turn a ship in place so one of its sides, or its fixed guns, points at something: e.g. aim the forward
+        cannons at an enemy ship. target: a ship or station name, a radio signal, a GPS name or string, or
+        "x, y, z". face: forward (default) / back / up / down / left / right as the pilot sees it, "guns" (all fixed
+        weapons, averaged), or a fixed weapon's name. Roll is left as is. Doesn't fire (fire_weapons does).
+        Check clearance first near structures. Refuses in natural gravity unless force=True."""
+        from . import steering
+
+        ship = await resolve.grid(bridge, grid)
+        if stop := reminders.gate(await _ship_name(grid)):
+            return stop
+        try:
+            name, point = await _point(target, ship["id"])
+        except ResolveError:
+            try:
+                other = await resolve.grid(bridge, target)
+            except ResolveError:
+                return f"Couldn't find '{target}' as a ship, radio signal, GPS or coordinates."
+            name, point = other.get("name") or target, (await bridge.call("grid.motion", {"gridId": other["id"]}))["center"]
+
+        frame = steering.frame_of(await bridge.call("grid.motion", {"gridId": ship["id"]}))
+        sides = {"forward": [0, 0, 1], "back": [0, 0, -1], "up": [0, 1, 0], "down": [0, -1, 0],
+                 "right": [1, 0, 0], "left": [-1, 0, 0]}
+        side = face.strip().lower()
+        origin = [0.0, 0.0, 0.0]
+        if side in sides:
+            local, what = sides[side], f"its {side}"
+        else:
+            _, r = await _weapons(grid)
+            spec = "all" if side in ("guns", "weapons", "fixed weapons", "cannons") else face
+            try:
+                guns = combat.pick(r["weapons"], spec, ("fixed",))
+            except ResolveError as e:
+                return f"{e} (face takes forward/back/up/down/left/right, 'guns', or a fixed weapon's name)"
+            world = steering.normalize([sum(g["forward"][i] for g in guns) for i in range(3)])
+            local = steering.to_local(world, frame)
+            centre = [sum(g["position"][i] for g in guns) / len(guns) - frame["center"][i] for i in range(3)]
+            origin = steering.to_local(centre, frame)
+            what = ", ".join(g["name"] for g in guns[:4]) + (f" (+{len(guns) - 4})" if len(guns) > 4 else "")
+        result = await steering.point_ship(bridge, ship["id"], point, local, origin, max_rpm=max_rpm, force=force)
+        return f"Pointing {what} at {name}: {result}"
+
     @server.tool(structured_output=False)
     async def screenshot(max_width: int = 1280, hide_hud: bool = False) -> Image | str | list:
         """See what the player sees. Default: a capture of the game window (HUD, menus and all; works while
@@ -1691,12 +1749,13 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
     @tool
     async def dock(target: str, grid: str | None = None, connector: str | None = None, target_connector: str | None = None,
-                   approach_m: float = 20, max_speed: float = 2.0) -> str:
+                   approach_m: float = 20, max_speed: float = 2.0, park_thrusters: bool = True) -> str:
         """Dock a ship onto another ship's or station's connector by flying it there: lines our connector up
         with theirs (gyros), comes in along their connector's axis from approach_m out (thrusters), and connects
-        when it's Connectable. Picks free connectors unless named. Turns thrusters on if the
-        ship was parked with them off, and back off once docked. Keep the path clear; it doesn't steer around
-        things on the way to the approach point."""
+        when it's Connectable. Picks free connectors unless named. Turns thrusters on to fly, and off once docked
+        (park_thrusters; a docked ship's thrusters fight its carrier's thrust and dampeners). park_thrusters=False
+        puts them back the way they were. Keep the path clear; it doesn't steer around things on the way to the
+        approach point."""
         ship = await resolve.grid(bridge, grid)
         other = await resolve.grid(bridge, target)
         mine = await bridge.call("dock.get", {"gridId": ship["id"]})
@@ -1731,10 +1790,11 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         except Exception as e:
             return f"Docking stopped: {e}. Overrides released, dampeners on.\n" + "\n".join(log[-4:])
         finally:
-            await pilot.stop(docked)
+            await pilot.stop(docked, park=park_thrusters)
         if not docked:
             return f"Lined up but the connector didn't lock ({r['after']})."
-        return f"Docked {mine['gridName']}'s {c['name']} to {t['name']} on {theirs['gridName']}."
+        parked = " Thrusters off (parked)." if park_thrusters else ""
+        return f"Docked {mine['gridName']}'s {c['name']} to {t['name']} on {theirs['gridName']}.{parked}"
 
     # --- Surfaces: height maps and landing on landing gear. ---
 

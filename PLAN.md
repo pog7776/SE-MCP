@@ -322,6 +322,14 @@ Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the
     - **Speed:** the loop runs over RPC a few times a second, so its gains and limits are conservative and the user finds it slow. Move the closed loop into the plugin, running every tick, with a trapezoidal velocity profile (full speed in transit, braking planned from measured thrust per axis). Python sends the goal and polls the status.
     - **The RC:** the RC autopilot is fast in transit and has the game's collision avoidance, but it always turns its leading face toward the travel direction. So it can't hold a sideways connector attitude, and many ships (like the Blue Ship) don't have one. Plan: our pilot (v2) is the main pilot. When the ship has an RC, it's an option for long transit legs to the approach point, and our pilot always does the final approach.
 
+18. **Ship control: rotation first** (2026-10-30; the companion couldn't "rotate the ship for the forward cannons", since only `align_to_sun` could turn a ship):
+    - ✅ `rotate_ship`: yaw/pitch/roll by degrees as the pilot sees it. Full-attitude control (`Steering.orient`, quaternion error, so 180 deg turns and pure rolls work), holding the other axes.
+    - ✅ `point_ship`: point a side (forward/back/up/down/left/right) or the fixed guns ("guns" or a weapon's name, aimed from where they're mounted) at a ship, station, radio signal, GPS or coordinates. Roll left as is.
+    - ✅ `dock` parks thrusters off once connected (`park_thrusters`, default on): leaving them on fights the carrier, as the Red Fighter showed.
+    - Tested on the simulated ship (awkward gyro mount) only; first live turn waits for a ship in open space.
+    - Next: `level_ship` (up against gravity, for planets; needs gravity direction in `grid.motion`), a roll target for `point_ship` ("keep upright to the station"), `hold_heading`/track a moving target (re-point every second until told to stop, plugin-side loop from item 16), and a clearance sweep before turning (item 15's `path.sweep`, using the ship's swing radius).
+    - Next, beyond rotation: `stop_ship` (kill all motion), `strafe`/`move_ship` by meters in the pilot's frame, `set_speed` for cruise, and a `ship_controls` summary (what's on/off, overrides, autopilot) so the AI can undo what it did.
+
 17. **Renaming toolkit** (a skill set players use all the time; found 2026-10-30 when the companion tagged 74 blocks with 74 separate `rename_block` calls, each looked up by name):
     - ✅ `rename_blocks`: pick blocks by name/group/type (or the whole ship), then strip a prefix, find/replace, a template (`{name}` `{type}` `{n}` per type `{i}` overall, numbered in natural order) and add a prefix/suffix (skipped where present, so repeats are safe). `dry_run` previews. One `block.rename_many` call applies it by id. Verified live: 2 renames in 0.05 s.
     - Next: rename the ship itself (grid name, `grid.set_name`) and its subgrids ("Red Ship - Drill Arm").
