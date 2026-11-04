@@ -3,8 +3,9 @@ name = "se-mcp"
 version = "0.1.0"
 description = "MCP server that lets an AI assistant see and control Space Engineers via the SEMcp plugin"
 authors = [
-    { name = "Jack Cooper", email = "jack.cooper7776@gmail.com" }
+    { name = "Jack Cooper" }
 ]
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=2.3.0",

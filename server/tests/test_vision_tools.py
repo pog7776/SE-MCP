@@ -46,7 +46,7 @@ def handlers() -> dict[str, Any]:
                                   "cockpit": {"name": "Helm", "forward": [1, 0, 0], "up": [0, 1, 0]}},
         "sensors.get": lambda p: {"sensors": [{"id": "6", "name": "Door Sensor", "working": True, "active": True,
                                                "extents": [5, 5, 3, 3, 5, 5], "maxRange": 50, "detects": ["players"],
-                                               "relations": ["owner"], "detected": [{"name": "dingus", "type": "CharacterHuman",
+                                               "relations": ["owner"], "detected": [{"name": "Engineer", "type": "CharacterHuman",
                                                                                      "relation": "owner", "distance": 2.1, "size": [1, 2, 1], "speed": 0}]}]},
     })
     return h
@@ -95,4 +95,4 @@ async def test_camera_scan_and_sensors():
     assert "Pirate Drone (SmallGrid, enemy) 812 m away, 10x6x14 m, moving 31.2 m/s" in content[0].text
     content, _ = await run("sensors")
     assert "Door Sensor: TRIGGERED" in content[0].text
-    assert "· dingus (CharacterHuman, owner)" in content[0].text
+    assert "· Engineer (CharacterHuman, owner)" in content[0].text

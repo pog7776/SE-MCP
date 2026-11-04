@@ -8,13 +8,13 @@ Let an AI assistant (over MCP) see and control the player's ships, stations and 
 
 | Item | Value |
 |---|---|
-| Game | SE 1.210.014, `S:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64` |
+| Game | SE 1.210.014, `<Steam library>\steamapps\common\SpaceEngineers\Bin64` (set per machine in `Directory.Build.local.props`) |
 | Runtime | .NET Framework 4.8 via Pulsar `Legacy.exe`, or .NET 10 via Pulsar `Interim.exe`. We build `net48` + `net9.0` for both |
 | .NET SDKs | 5–9 installed (no .NET 10 SDK. The `net9.0` build runs on the .NET 10 runtime) |
-| Python | 3.11.9 at `%LOCALAPPDATA%\Programs\Python\Python311` (the `python` on PATH is the Store stub) |
+| Python | 3.11+ (uv finds or installs it). On Windows the `python` on PATH may be the Store stub; use `uv run python` |
 | JSON in Bin64 | `System.Text.Json.dll` 8.0 (+ deps) is shipped. **Newtonsoft.Json is not.** |
 | Pulsar | v2.4.3 at `%AppData%\Pulsar`. Local DLLs go in `<Legacy\|Interim>\Local`, enabled via Plugins → **+** |
-| Tools | `uv` 0.13 (`%AppData%\Python\Python311\Scripts`, not on PATH), `ilspycmd` 9.1.0.7988 (latest needs .NET 10 SDK) |
+| Tools | `uv` 0.13, `ilspycmd` 9.1.0.7988 (latest needs .NET 10 SDK) |
 | MCP SDK | `mcp` 2.x: `FastMCP` is now `mcp.server.mcpserver.MCPServer`, and pydantic fields are snake_case |
 
 ## Architecture
@@ -207,7 +207,7 @@ Client config (README):
 ```json
 { "mcpServers": { "space-engineers": {
     "command": "uv",
-    "args": ["--directory", "S:/Dev/SpaceEngineers/SE-MCP/server", "run", "se-mcp"] } } }
+    "args": ["--directory", "<path to repo>/server", "run", "se-mcp"] } } }
 ```
 
 ## Milestones

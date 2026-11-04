@@ -1,7 +1,11 @@
 <Project>
+  <!-- Per-machine settings (game folder etc.), gitignored. Copy Directory.Build.local.props.example to start. -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+
   <PropertyGroup>
-    <!-- Folder containing SpaceEngineers.exe. Override with: dotnet build -p:SEBin=... -->
-    <SEBin Condition="'$(SEBin)' == ''">S:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64</SEBin>
+    <!-- Folder containing SpaceEngineers.exe. Set it in Directory.Build.local.props, an SEBin environment
+         variable, or dotnet build -p:SEBin=...; the default is Steam's standard library. -->
+    <SEBin Condition="'$(SEBin)' == ''">$(MSBuildProgramFiles32)\Steam\steamapps\common\SpaceEngineers\Bin64</SEBin>
     <!-- net48 = Pulsar Legacy (.NET Framework), net9.0 = Pulsar Interim (.NET 10 runtime) -->
     <TargetFrameworks>net48;net9.0</TargetFrameworks>
     <PlatformTarget>x64</PlatformTarget>
@@ -46,4 +50,8 @@
     <Reference Include="Microsoft.Bcl.AsyncInterfaces" HintPath="$(SEBin)\Microsoft.Bcl.AsyncInterfaces.dll" Private="false" />
     <Reference Include="System.Net.Http" />
   </ItemGroup>
+
+  <Target Name="SEMcpCheckGamePath" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(SEBin)\SpaceEngineers.exe')">
+    <Error Text="Space Engineers not found in '$(SEBin)'. Set SEBin to your game's Bin64 folder: copy Directory.Build.local.props.example to Directory.Build.local.props and edit it (see README)." />
+  </Target>
 </Project>

@@ -12,13 +12,13 @@ SOUL = "# Soul\n\nName: Suit AI\n"
 
 
 def chat(text: str, source: str = "chat", **context) -> dict:
-    ctx = {"player": "dingus", "persona": "suit", "ship": None, "shipId": None, **context}
+    ctx = {"player": "Engineer", "persona": "suit", "ship": None, "shipId": None, **context}
     return {"id": 1, "type": "chat", "source": source, "text": text, "context": ctx, "data": {}}
 
 
 def watch_event(text: str = "Suit oxygen low: oxygen is 12 (< 20)", note: str | None = "Warn the player.") -> dict:
     return {"id": 2, "type": "watch", "source": "character.status", "text": text,
-            "context": {"player": "dingus", "persona": "suit"}, "data": {"watch": "suit-oxygen", "note": note}}
+            "context": {"player": "Engineer", "persona": "suit"}, "data": {"watch": "suit-oxygen", "note": note}}
 
 
 class FakeBrain:
@@ -70,7 +70,7 @@ async def test_chat_gets_an_answer_with_its_context():
     async with FakeGame(handlers()) as game:
         await make_runner(game, brain).handle(chat("how much hydrogen?"))
 
-    assert brain.asked[0].startswith("[Context: dingus is on foot in their suit. Sent from the chat at ")
+    assert brain.asked[0].startswith("[Context: Engineer is on foot in their suit. Sent from the chat at ")
     assert brain.asked[0].endswith("\nhow much hydrogen?")
     assert chats(game) == [("Suit AI", "Hydrogen is at 80%.")]
     assert statuses(game) == [("Suit AI: thinking... 0s", StatusHud.COLORS["thinking"]),

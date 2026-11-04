@@ -1,0 +1,9 @@
+<!-- Copy to Directory.Build.local.props (gitignored) and set the paths for this machine. -->
+<Project>
+  <PropertyGroup>
+    <!-- The game's Bin64 folder (the one with SpaceEngineers.exe). -->
+    <SEBin>D:\SteamLibrary\steamapps\common\SpaceEngineers\Bin64</SEBin>
+    <!-- Optional: Pulsar's folder if it isn't %AppData%\Pulsar. -->
+    <!-- <PulsarDir>D:\Pulsar</PulsarDir> -->
+  </PropertyGroup>
+</Project>
