@@ -184,18 +184,61 @@ Then, with a world loaded, ask "what am I looking at?". The AI should call `se_s
 
 ## In-game companion
 
-Talk to the assistant from inside the game (only you see it):
-- **Chat:** type `/ai <message>`. `/ai reset` starts a fresh conversation.
+Talk to the AI from inside the game without alt-tabbing. Only you see the conversation:
+- **Chat:** type `/ai <message>`, e.g. `/ai how much ice do we have?`. `/ai reset` starts a fresh conversation.
 - **Comms tab:** open the terminal's Comms tab and pick **-Suit AI-**. Type normally; replies stay in that conversation.
 
-Something has to answer, so run the companion runner while you play. It uses the [Claude Code](https://claude.com/claude-code) CLI on your Claude plan (log in once with `claude auth login`):
+It also speaks up on its own when a **watch** fires ("your oxygen is at 15%"). Replies come from "Suit AI" when you're on foot or "Ship AI" when you're seated, unless you give it a name.
+
+### How it works
+
+The plugin can't think on its own: it passes your messages to a small program on your PC, the **companion runner**. The runner keeps one [Claude Code](https://claude.com/claude-code) process open in the background and hands it each message. That process has this project's tools, so it can act in the game the same way an AI client can.
+
+```
+/ai message ──▶ plugin ──▶ se-mcp-runner ──▶ claude (headless) ──tools──▶ plugin ──▶ reply in chat / Comms
+```
+
+The runner must be running while you play; if it isn't, nobody answers. You don't need a separate AI client open for the in-game companion: the runner is the client.
+
+### Set it up (one time)
+
+1. **Finish the [Install](#install) steps** (the plugin must be loaded and `uv` on PATH).
+2. **Install Claude Code**, Anthropic's command-line tool, with the [install instructions](https://docs.claude.com/en/docs/claude-code/setup). Check that `claude --version` works in a new terminal.
+3. **Log in:** run `claude` once and follow the login (or `claude auth login`). The companion uses whatever Claude Code is logged in with: your Claude subscription (Pro or Max) or an Anthropic API key. Usage counts against that plan or key like any other Claude Code use.
+
+### Run it (each time you play)
+
+Start the game and load a world. Then, in a terminal in the repo folder:
 
 ```bash
 cd server
-uv run se-mcp-runner     # options: --model, --timeout, --claude <path to claude CLI>
+uv run se-mcp-runner
 ```
 
-It keeps one headless Claude Code process with only this server's tools and one conversation (reset after 3 h idle). Replies come from "Suit AI" on foot or "Ship AI" when seated, unless you give it a name.
+You'll see `SE-MCP companion: answering '/ai' chat, ...` and then `Connected to the game; listening.`. It's fine to start it before the game: it waits for the game and reconnects if you reload.
+
+In game, a small status line on your HUD shows what the AI is doing: *listening*, *thinking*, the tool it's using, or *couldn't answer*. It disappears about a minute after the runner stops. Type `/ai hello` to check. Stop the runner with Ctrl+C.
+
+Options:
+
+| Option | Default | What it does |
+|---|---|---|
+| `--model <name>` | Claude Code's default | Which Claude model answers, e.g. `--model haiku` for faster, cheaper replies or `--model opus` for harder jobs |
+| `--timeout <seconds>` | `600` | How long one answer may take before it gives up |
+| `--claude <path>` | `claude` on PATH | Path to the Claude Code program if it isn't on PATH |
+
+### What it can and can't do
+
+- It has this project's game tools only. Claude Code's own tools (files, shell, web) are switched off, so it can't touch your PC. Its game tools are approved in advance, so it doesn't stop to ask permission. The plugin's settings still apply: `readOnly`, `allowWeapons` and the rest.
+- It keeps one conversation going and starts a new one after 3 hours of quiet, or when you type `/ai reset`.
+- It's told to keep replies short and ask before risky actions; personalities can't remove those rules.
+- Its files live in `%AppData%\SpaceEngineers\SEMcp\runner\`: the personality, conversation id, and `claude-stderr.log`, which records errors from the Claude process. Set `SE_MCP_RUNNER_DIR` to move them.
+
+### If it doesn't answer
+
+- **Nothing happens after `/ai`:** check the runner's terminal. "Waiting for the game" means the plugin isn't reachable (is a world loaded?). If nothing shows up there either, check `chatPrefix` in the settings.
+- **"Couldn't find the claude CLI on PATH":** install Claude Code, open a new terminal, or pass `--claude <path to claude.exe>`.
+- **The HUD says "couldn't answer":** the runner's terminal and `claude-stderr.log` say why. Usually Claude Code isn't logged in, you've hit a usage limit, or an answer took longer than `--timeout`.
 
 **Watches:** "tell me when the Red Ship's hydrogen is below 20%" makes it add a watch. A watch re-reads a game value every few seconds and wakes the AI when its test becomes true; the AI decides whether to tell you. Suit oxygen, hydrogen, energy and health warnings are on by default. Stored in `%AppData%\SpaceEngineers\SEMcp\watches.json`.
 
