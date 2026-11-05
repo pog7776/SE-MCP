@@ -81,6 +81,8 @@ namespace SEScreens
             public string PreviousScript;
             public int Uploads;
             public MyEntity3DSoundEmitter Sound;
+            public VRage.Audio.IMySourceVoice TaggedVoice;
+            public Vector3? ScreenCentre;
             public long AudioBytes;
             public int AudioChunks;
             public readonly System.IO.MemoryStream PendingAudio = new System.IO.MemoryStream();
@@ -166,6 +168,7 @@ namespace SEScreens
             var factory = MyTextSurfaceScriptFactory.Instance;
             if (factory != null && FactoryScripts?.GetValue(factory) is Dictionary<string, MyTextSurfaceScriptFactory.ScriptInfo> scripts)
                 scripts.Remove(MirrorScript.Id);
+            ScreenAudio.RemoveCue();
             IsRunning = false;
         }
 
@@ -303,9 +306,9 @@ namespace SEScreens
             factory.RegisterFromAssembly(typeof(MirrorScript).Assembly);
         }
 
-        // A source's sound comes out of the screen's block, like a player's voice chat comes out of their character
+        // A source's sound comes out of the screen, like a player's voice chat comes out of their character
         // (MyEntity3DSoundEmitter.PlaySound with raw buffers): 3D, fading out by AudioRange, at the game's volume.
-        // Sent in 100 ms chunks; the voice holds at most 62 queued buffers.
+        // Sent in 100 ms chunks; the voice holds at most 62 queued buffers. ScreenAudio keeps it positioned.
         private static void PlayAudio(Feed f, IAudioSource audio)
         {
             byte[] pcm = audio.TakeAudio();
@@ -314,11 +317,27 @@ namespace SEScreens
                 f.PendingAudio.Write(pcm, 0, pcm.Length);
                 f.AudioBytes += pcm.Length;
             }
+            if (f.Sound == null)
+            {
+                if (f.PendingAudio.Length < AudioChunkBytes)
+                    return;
+                f.Sound = new MyEntity3DSoundEmitter((MyEntity)f.Block);
+                f.ScreenCentre = ScreenAudio.LocalCentre(f.Block, f.Panel);
+            }
+            // Every frame: the emitter's position is stored relative to the camera.
+            f.Sound.SetPosition(f.ScreenCentre.HasValue
+                ? Vector3D.Transform(f.ScreenCentre.Value, f.Block.WorldMatrix)
+                : f.Block.WorldMatrix.Translation);
             if (f.PendingAudio.Length < AudioChunkBytes)
                 return;
-            if (f.Sound == null)
-                f.Sound = new MyEntity3DSoundEmitter((MyEntity)f.Block);
+            ScreenAudio.EnsureCue(AudioRange);
             f.Sound.PlaySound(f.PendingAudio.ToArray(), MyAudio.Static.VolumeGame, AudioRange, MySoundDimensions.D3);
+            // A new voice starts whenever the last one ran dry; tag each one.
+            if (f.Sound.Sound != f.TaggedVoice)
+            {
+                ScreenAudio.Tag(f.Sound.Sound);
+                f.TaggedVoice = f.Sound.Sound;
+            }
             f.AudioChunks++;
             f.PendingAudio.SetLength(0);
         }
@@ -387,7 +406,8 @@ namespace SEScreens
             AudioState = !(f.Source is IAudioSource) ? null
                 : f.Sound == null ? "no emitter"
                 : f.Sound.Sound == null ? "no voice (game audio off?)"
-                : f.Sound.IsPlaying ? "playing" : "idle",
+                : (f.Sound.IsPlaying ? "playing" : "idle") + (f.Sound.Sound.CueEnum.ToString() == ScreenAudio.CueName ? ", positional" : ", fixed position")
+                    + (f.ScreenCentre.HasValue ? ", at the screen" : ", at the block centre"),
         };
     }
 }
