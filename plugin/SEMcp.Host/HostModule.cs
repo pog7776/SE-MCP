@@ -62,6 +62,7 @@ namespace SEMcp.Host
             OverlayMethods.Register(dispatcher);
             PathMethods.Register(dispatcher);
             MirrorMethods.Register(dispatcher, config.AllowWindowMirror);
+            MirrorMethods.BrowserAllowed = config.AllowBrowser;
             StartCapture();
 
             events = new EventHub();

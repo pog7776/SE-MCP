@@ -30,8 +30,9 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Game assemblies: never copied, always taken from the game at runtime. -->
-  <ItemGroup>
+  <!-- Game assemblies: never copied, always taken from the game at runtime. Projects that run outside the game
+       (the browser helper) set SEGameReferences=false. -->
+  <ItemGroup Condition="'$(SEGameReferences)' != 'false'">
     <Reference Include="VRage" HintPath="$(SEBin)\VRage.dll" Private="false" />
     <Reference Include="VRage.Library" HintPath="$(SEBin)\VRage.Library.dll" Private="false" />
     <Reference Include="VRage.Game" HintPath="$(SEBin)\VRage.Game.dll" Private="false" />

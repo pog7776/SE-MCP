@@ -186,6 +186,33 @@ namespace SEScreens
             return Show(block, surface, info, (w, h) => new WindowCapture(window.Handle, w, h, fps), fps, resolution);
         }
 
+        // Shows a web page on the block's screen. If that screen already has a browser, it navigates instead
+        // (keeping its size and fps).
+        public static MirrorInfo OpenBrowser(IMyTerminalBlock block, int surface, string url, int fps, int resolution = DefaultResolution)
+        {
+            if (Feeds.TryGetValue((block.EntityId, surface), out var f) && f.Source is BrowserSource open && !open.Ended)
+            {
+                open.Navigate(url);
+                f.Info.Detail = url;
+                return Describe(f);
+            }
+            fps = MathHelper.Clamp(fps, 1, 60);
+            var info = new SourceInfo { Kind = "browser", Title = "Browser", Detail = url };
+            return Show(block, surface, info, (w, h) => new BrowserSource(info, url, w, h, fps), fps, resolution);
+        }
+
+        // Sends a raw command to the browser on that screen (see SEScreens.Browser: move/down/up/wheel X Y,
+        // text STRING). False if it has no browser.
+        public static bool BrowserInput(long blockId, int surface, string command)
+        {
+            if (!(Feeds.TryGetValue((blockId, surface), out var f) && f.Source is BrowserSource browser))
+                return false;
+            browser.Send(command);
+            return true;
+        }
+
+        public static bool BrowserAvailable => System.IO.File.Exists(BrowserSource.HelperPath());
+
         // Shows any source on the block's screen (switching it to Window Mirror). create gets the texture size: the
         // screen's aspect ratio with its long side = resolution (64-2048). Throws ArgumentException for a block or
         // surface that can't show it. Showing again on the same surface keeps what it showed before the first.
@@ -196,6 +223,8 @@ namespace SEScreens
                 throw new InvalidOperationException("Screens isn't running");
             var panel = Panel(block, surface);
             var size = Size(panel, MathHelper.Clamp(resolution, 64, 2048));
+            // First, so a source that can't start leaves the screen untouched.
+            var source = create(size.X, size.Y);
 
             var key = (block.EntityId, surface);
             ContentType previousContent = panel.ContentType;
@@ -224,7 +253,7 @@ namespace SEScreens
                 Fps = fps,
                 PreviousContent = previousContent,
                 PreviousScript = previousScript,
-                Source = create(size.X, size.Y),
+                Source = source,
             };
             Feeds[key] = f;
             return Describe(f);

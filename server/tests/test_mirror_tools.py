@@ -43,6 +43,8 @@ def handlers(calls: list) -> dict[str, Any]:
         "mirror.start": record("start", lambda p: mirror(p["surface"], fps=p["fps"])),
         "mirror.stop": record("stop", lambda p: {"stopped": 1 if p else len(running)}),
         "mirror.list": record("list", {"mirrors": running, "gameFps": 60, "frameMs": 16.7}),
+        "browser.open": record("browser", lambda p: mirror(p["surface"], kind="browser", window="Browser",
+                                                              process="https://" + p["url"], fps=p["fps"])),
     })
     return h
 
@@ -103,3 +105,10 @@ async def test_list_mirrors():
 async def test_list_mirrors_reports_game_frame_rate():
     text = await call("list_mirrors", {}, [])
     assert text.endswith("Game: 60 fps, 16.7 ms/frame.")
+
+
+async def test_show_webpage_passes_url_and_describes_page():
+    calls: list = []
+    text = await call("show_webpage", {"block": "Control Seat", "url": "youtube.com", "surface": 1}, calls)
+    assert calls == [("browser", {"blockId": SEAT, "surface": 1, "url": "youtube.com", "fps": 30, "resolution": 1024})]
+    assert text.startswith("Showing: Control Seat #1: web page https://youtube.com at 30 fps")

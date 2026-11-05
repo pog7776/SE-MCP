@@ -985,7 +985,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
     # --- Window mirror: desktop windows shown live on screens, on this PC only. ---
 
     def _mirror_line(m: dict[str, Any]) -> str:
-        line = (f"{m['block']} #{m['surface']}: {m['window']!r} ({m['process']}) at {m['fps']} fps, "
+        what = f"web page {m['process']}" if m.get("kind") == "browser" else f"{m['window']!r} ({m['process']})"
+        line = (f"{m['block']} #{m['surface']}: {what} at {m['fps']} fps, "
                 f"{m['resolution'][0]}x{m['resolution'][1]}, {m['uploaded']} frames shown")
         return line + (f", capture error: {m['error']}" if m.get("error") else "")
 
@@ -1015,8 +1016,22 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         return "Mirroring: " + _mirror_line(m)
 
     @tool
+    async def show_webpage(block: str, url: str, surface: str | int | None = None, fps: int = 30,
+                           resolution: int = 1024, grid: str | None = None) -> str:
+        """Show a web page live on an LCD or cockpit screen, e.g. a YouTube video, a map or a dashboard. If that
+        screen already shows a page, it goes to the new url instead.
+
+        url: "youtube.com/watch?v=..." works (https is assumed). fps: 1-60. resolution: the long side in pixels
+        (64-2048). Only this PC sees it; sound plays from the PC's speakers for now. Stop with stop_mirror."""
+        target = await resolve.block(bridge, block, grid)
+        params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface),
+                                  "url": url, "fps": fps, "resolution": resolution}
+        m = await bridge.call("browser.open", params)
+        return "Showing: " + _mirror_line(m)
+
+    @tool
     async def stop_mirror(block: str | None = None, surface: str | int | None = None, grid: str | None = None) -> str:
-        """Stop mirroring a window on a screen and put the screen back as it was. No block: stop every mirror.
+        """Stop a mirrored window or web page on a screen and put the screen back as it was. No block: stop them all.
         Without block or surface it also lists what was running."""
         if block is None:
             running = (await bridge.call("mirror.list", {}))["mirrors"]

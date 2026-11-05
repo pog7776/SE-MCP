@@ -17,6 +17,8 @@ namespace SEMcp.Host
         public bool AllowScreenshots { get; set; } = true;
         // Desktop windows shown on LCDs, on this PC only.
         public bool AllowWindowMirror { get; set; } = true;
+        // Web pages on LCDs (SEScreens' browser helper).
+        public bool AllowBrowser { get; set; } = true;
         // Off by default: firing weapons needs an explicit opt-in.
         public bool AllowWeapons { get; set; }
         public double MaxRangeMeters { get; set; } = 50000;

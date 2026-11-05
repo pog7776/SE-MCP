@@ -85,6 +85,7 @@ TOOLS.update({
     "mirror_window": Fairness("own", "construct", "shows a desktop window on a screen, on this PC only"),
     "stop_mirror": Fairness("own", "construct"),
     "list_mirrors": Fairness("own", None),
+    "show_webpage": Fairness("own", "construct", "loads a web page onto a screen, on this PC only"),
 })
 
 TOOLS.update({

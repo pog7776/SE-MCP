@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The browser helper: Chromium (CEF, via CefSharp) rendering off screen in its own process, so a page or CEF
+       itself can't take the game down. SEScreens starts one per browser screen and reads its frames from shared
+       memory. Runs outside the game: no game references, its own .NET 8 runtime. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>SEScreens.Browser</AssemblyName>
+    <RootNamespace>SEScreens.Browser</RootNamespace>
+    <SEGameReferences>false</SEGameReferences>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CefSharp.OffScreen.NETCore" Version="156.0.150" />
+  </ItemGroup>
+
+  <!-- SEScreens starts the helper from here (BrowserSource.HelperPath). Unchanged CEF files are skipped. A running
+       helper locks its exe, so the copy only warns then. -->
+  <PropertyGroup>
+    <SEScreensBrowserDir Condition="'$(SEScreensBrowserDir)' == ''">$(APPDATA)\SpaceEngineers\SEScreens\browser</SEScreensBrowserDir>
+  </PropertyGroup>
+  <Target Name="DeployBrowser" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <BrowserFiles Include="$(OutDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BrowserFiles)" DestinationFiles="@(BrowserFiles->'$(SEScreensBrowserDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" ContinueOnError="WarnAndContinue" />
+  </Target>
+</Project>
