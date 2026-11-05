@@ -10,13 +10,14 @@ namespace SEScreens
     // Copies one desktop window into RGBA frames sized for an LCD texture, on its own thread.
     // GDI for now: PrintWindow with PW_RENDERFULLCONTENT also gets most GPU-drawn windows (browsers, Electron),
     // and works while the window is covered. Windows.Graphics.Capture in a helper process is the faster upgrade.
-    internal sealed class WindowCapture : IDisposable
+    internal sealed class WindowCapture : IFrameSource
     {
         private const uint PwClientOnly = 1, PwRenderFullContent = 2;
         private const int Halftone = 4, SrcCopy = 0x00CC0020;
 
         public readonly IntPtr Window;
-        public readonly int Width, Height;
+        public int Width { get; }
+        public int Height { get; }
         public string Error { get; private set; }
         public bool Ended { get; private set; }
         public int Frames { get; private set; }
@@ -27,15 +28,15 @@ namespace SEScreens
         private volatile bool stop;
         private byte[] latest;
 
-        // byteCount: the texture's whole mip chain. The game regenerates mips on the GPU, so only level 0 is filled.
-        public WindowCapture(IntPtr window, int width, int height, int byteCount, int fps)
+        // A window with IntPtr.Zero is the test card.
+        public WindowCapture(IntPtr window, int width, int height, int fps)
         {
             Window = window;
             Width = width;
             Height = height;
-            this.byteCount = byteCount;
+            byteCount = FrameBuffer.Bytes(width, height);
             intervalMs = 1000 / Math.Max(1, fps);
-            thread = new Thread(Run) { IsBackground = true, Name = "SEMcp window mirror" };
+            thread = new Thread(Run) { IsBackground = true, Name = "SEScreens window mirror" };
             thread.Start();
         }
 

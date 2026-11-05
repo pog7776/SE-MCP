@@ -1001,14 +1001,15 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
     @tool
     async def mirror_window(block: str, window: str, surface: str | int | None = None, fps: int = 15,
-                            grid: str | None = None) -> str:
+                            resolution: int = 1024, grid: str | None = None) -> str:
         """Show a desktop window live on an LCD or one of a cockpit's screens (sets it to the Window Mirror script).
 
-        window: part of its title or the process name (see list_windows), or a handle like 0x1A2B. fps: 1-30.
-        Only this PC sees the picture (other players see the idle card); no sound yet. Stop with stop_mirror, which
-        puts the screen back as it was."""
+        window: part of its title or the process name (see list_windows), a handle like 0x1A2B, or "testcard".
+        fps: 1-30. resolution: the long side of the screen's picture in pixels (64-2048). Only this PC sees the
+        picture (other players see the idle card); no sound yet. Stop with stop_mirror, which puts the screen back."""
         target = await resolve.block(bridge, block, grid)
-        params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface), "fps": fps}
+        params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface),
+                                  "fps": fps, "resolution": resolution}
         params["handle" if window.lower().startswith("0x") else "window"] = window
         m = await bridge.call("mirror.start", params)
         return "Mirroring: " + _mirror_line(m)
@@ -1029,9 +1030,12 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
 
     @tool
     async def list_mirrors() -> str:
-        """Windows currently mirrored onto screens, with frame counts."""
-        mirrors = (await bridge.call("mirror.list", {}))["mirrors"]
-        return "\n".join("- " + _mirror_line(m) for m in mirrors) if mirrors else "No windows are being mirrored."
+        """Windows currently mirrored onto screens, with frame counts and the game's frame rate."""
+        r = await bridge.call("mirror.list", {})
+        game = f"Game: {r['gameFps']} fps, {r['frameMs']} ms/frame." if "gameFps" in r else ""
+        if not r["mirrors"]:
+            return " ".join(filter(None, ["No windows are being mirrored.", game]))
+        return "\n".join(["- " + _mirror_line(m) for m in r["mirrors"]] + ([game] if game else []))
 
     # --- Inventory management. Moves go through conveyors, like dragging items in the terminal. ---
 

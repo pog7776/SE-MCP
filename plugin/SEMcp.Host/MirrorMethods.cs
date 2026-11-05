@@ -27,7 +27,12 @@ namespace SEMcp.Host
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static object List() => new { mirrors = Screens.ListMirrors().Select(Describe).ToList() };
+        private static object List() => new
+        {
+            mirrors = Screens.ListMirrors().Select(Describe).ToList(),
+            gameFps = Screens.GameFps,
+            frameMs = Math.Round(Screens.FrameTimeMs, 2),
+        };
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static object Windows(JsonObject p)
@@ -60,7 +65,8 @@ namespace SEMcp.Host
             }
             try
             {
-                return Describe(Screens.StartMirror(block, (int)p.Number("surface", 0), window, (int)p.Number("fps", 15)));
+                return Describe(Screens.StartMirror(block, (int)p.Number("surface", 0), window, (int)p.Number("fps", 15),
+                    (int)p.Number("resolution", Screens.DefaultResolution)));
             }
             catch (ArgumentException e)
             {
@@ -94,6 +100,7 @@ namespace SEMcp.Host
             blockId = m.BlockId.ToString(CultureInfo.InvariantCulture),
             block = m.Block,
             surface = m.Surface,
+            kind = m.Kind,
             window = m.Window,
             process = m.Process,
             handle = m.Handle,

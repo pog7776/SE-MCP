@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Sandbox.Engine.Utils;
 using Sandbox.Game.Components;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.GameSystems.TextSurfaceScripts;
@@ -9,6 +10,7 @@ using Sandbox.ModAPI;
 using VRage.Game.GUI.TextPanel;
 using VRageMath;
 using VRageRender;
+using VRageRender.Messages;
 using IngameSurfaceProvider = Sandbox.ModAPI.Ingame.IMyTextSurfaceProvider;
 
 namespace SEScreens
@@ -28,8 +30,9 @@ namespace SEScreens
         public long BlockId;
         public string Block;
         public int Surface;
-        public string Window;
-        public string Process;
+        public string Kind;
+        public string Window;   // the source's title
+        public string Process;  // the source's detail (process name, URL)
         public string Handle;
         public int Fps;
         public int Width, Height;
@@ -38,32 +41,41 @@ namespace SEScreens
         public string Error;
     }
 
-    // Live desktop windows on LCDs. The surface is switched to MirrorScript, and each new captured frame replaces
-    // the pixels of the screen's own generated texture (MyRenderProxy.ResetGeneratedTexture), so the game keeps
-    // binding, range culling and power state. Local to this client: other players see the idle card.
+    // Live content on LCDs. A screen showing a source is switched to MirrorScript (so the game draws nothing of its
+    // own there) and bound to a texture of ours, sized for the source rather than the game's small LCD texture.
+    // New frames replace that texture's pixels (MyRenderProxy.ResetGeneratedTexture). The game's own texture
+    // still tells us when the screen is powered and in range; while it isn't, the game's offline look shows.
+    // Local to this client: other players see the idle card.
     //
     // This is the public API other plugins (SEMcp) call. Everything here runs on the game thread. Whoever loaded
     // the assembly drives the lifecycle: ScreensPlugin under Pulsar, or SEMcp's host in development.
     public static class Screens
     {
+        public const int DefaultResolution = 1024;
         private const int CheckScriptEveryFrames = 100;
+        // The game rebinds a screen's texture on some events (recolour, model change); put ours back this often.
+        private const int RebindEveryFrames = 30;
 
-        private sealed class Mirror
+        private sealed class Feed
         {
             public IMyTerminalBlock Block;
             public int Surface;
             public MyTextPanelComponent Panel;
-            public WindowCapture Capture;
-            public WindowInfo Window;
+            public IFrameSource Source;
+            public SourceInfo Info;
+            public string Texture;
+            public bool Bound;
             public int Fps;
             public ContentType PreviousContent;
             public string PreviousScript;
             public int Uploads;
         }
 
-        private static readonly Dictionary<(long, int), Mirror> Mirrors = new Dictionary<(long, int), Mirror>();
+        private static readonly Dictionary<(long, int), Feed> Feeds = new Dictionary<(long, int), Feed>();
         private static readonly FieldInfo TextureGenerated =
             typeof(MyTextPanelComponent).GetField("m_textureGenerated", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo PanelRender =
+            typeof(MyTextPanelComponent).GetField("m_render", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly FieldInfo FactoryScripts =
             typeof(MyTextSurfaceScriptFactory).GetField("m_scripts", BindingFlags.Instance | BindingFlags.NonPublic);
         private static int frame;
@@ -73,6 +85,10 @@ namespace SEScreens
 
         // A stand-in "window" of grey and colour bars at known levels, for checking how screens show colour.
         public static readonly WindowInfo TestCard = new WindowInfo { Handle = IntPtr.Zero, Title = "Test card", Process = "" };
+
+        // The game's frame rate and average frame time (ms), for judging what feeds cost.
+        public static int GameFps => MyFpsManager.GetFps();
+        public static float FrameTimeMs => MyFpsManager.FrameTimeAvg;
 
         public static void Start(Action<string> logger)
         {
@@ -87,45 +103,48 @@ namespace SEScreens
                 return;
             if (frame++ % CheckScriptEveryFrames == 0)
                 EnsureScriptRegistered();
-            if (Mirrors.Count == 0)
+            if (Feeds.Count == 0)
                 return;
             List<(long, int)> ended = null;
-            foreach (var pair in Mirrors)
+            foreach (var pair in Feeds)
             {
-                var m = pair.Value;
-                if (m.Capture.Ended || m.Block.Closed || m.Panel.ContentType != ContentType.SCRIPT || m.Panel.Script != MirrorScript.Id)
+                var f = pair.Value;
+                if (f.Source.Ended || f.Block.Closed || f.Panel.ContentType != ContentType.SCRIPT || f.Panel.Script != MirrorScript.Id)
                 {
                     (ended ?? (ended = new List<(long, int)>())).Add(pair.Key);
                     continue;
                 }
-                var size = Size(m.Panel);
-                if (size.X != m.Capture.Width || size.Y != m.Capture.Height)
+                // Out of range, unpowered or broken screens drop the game's texture and show its offline look.
+                if (!(TextureGenerated?.GetValue(f.Panel) is bool live && live))
                 {
-                    m.Capture.Dispose();
-                    m.Capture = new WindowCapture(m.Capture.Window, size.X, size.Y, MyRenderComponentScreenAreas.GetTextureByteCount(size), m.Fps);
+                    f.Bound = false;
                     continue;
                 }
-                byte[] pixels = m.Capture.TakeLatest();
-                // Out of range or unpowered screens drop their texture; skip them rather than upload into nothing.
-                if (pixels == null || !(TextureGenerated?.GetValue(m.Panel) is bool generated && generated))
+                if (!f.Bound || frame % RebindEveryFrames == 0)
+                {
+                    Render(f.Panel)?.ChangeTexture(f.Panel.Area, f.Texture);
+                    f.Bound = true;
+                }
+                byte[] pixels = f.Source.TakeLatest();
+                if (pixels == null)
                     continue;
-                MyRenderProxy.ResetGeneratedTexture(m.Panel.GetRenderTextureName(), pixels);
-                m.Uploads++;
+                MyRenderProxy.ResetGeneratedTexture(f.Texture, pixels);
+                f.Uploads++;
             }
             if (ended != null)
                 foreach (var key in ended)
                 {
-                    var m = Mirrors[key];
-                    if (m.Capture.Error != null)
-                        log($"Mirror of '{m.Window.Title}' stopped: {m.Capture.Error}");
-                    End(key, restore: !m.Block.Closed && m.Panel.Script == MirrorScript.Id);
+                    var f = Feeds[key];
+                    if (f.Source.Error != null)
+                        log($"Feed of '{f.Info.Title}' stopped: {f.Source.Error}");
+                    End(key, restore: !f.Block.Closed && f.Panel.Script == MirrorScript.Id);
                 }
         }
 
-        // Plugin unload or hot reload: stop capturing, put screens back, and take the script out of the list.
+        // Plugin unload or hot reload: stop every feed, put screens back, and take the script out of the list.
         public static void Stop()
         {
-            foreach (var key in Mirrors.Keys.ToList())
+            foreach (var key in Feeds.Keys.ToList())
                 End(key, restore: true);
             var factory = MyTextSurfaceScriptFactory.Instance;
             if (factory != null && FactoryScripts?.GetValue(factory) is Dictionary<string, MyTextSurfaceScriptFactory.ScriptInfo> scripts)
@@ -151,50 +170,70 @@ namespace SEScreens
             w.Title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
             || string.Equals(w.Process, query, StringComparison.OrdinalIgnoreCase);
 
-        public static List<MirrorInfo> ListMirrors() => Mirrors.Values.Select(Describe).ToList();
+        public static List<MirrorInfo> ListMirrors() => Feeds.Values.Select(Describe).ToList();
 
-        // Shows window on the block's screen (switching it to Window Mirror). Throws ArgumentException for a block
-        // or surface that can't show it. Starting again on the same surface keeps what it showed before the first.
-        public static MirrorInfo StartMirror(IMyTerminalBlock block, int surface, WindowInfo window, int fps)
+        // Mirrors a desktop window (or the test card) onto the block's screen.
+        public static MirrorInfo StartMirror(IMyTerminalBlock block, int surface, WindowInfo window, int fps, int resolution = DefaultResolution)
+        {
+            fps = MathHelper.Clamp(fps, 1, 30);
+            var info = new SourceInfo
+            {
+                Kind = window.Handle == IntPtr.Zero ? "testcard" : "window",
+                Title = window.Title,
+                Detail = window.Process,
+                Handle = window.Handle == IntPtr.Zero ? null : window.HandleText,
+            };
+            return Show(block, surface, info, (w, h) => new WindowCapture(window.Handle, w, h, fps), fps, resolution);
+        }
+
+        // Shows any source on the block's screen (switching it to Window Mirror). create gets the texture size: the
+        // screen's aspect ratio with its long side = resolution (64-2048). Throws ArgumentException for a block or
+        // surface that can't show it. Showing again on the same surface keeps what it showed before the first.
+        public static MirrorInfo Show(IMyTerminalBlock block, int surface, SourceInfo info, Func<int, int, IFrameSource> create,
+            int fps, int resolution = DefaultResolution)
         {
             if (!IsRunning)
                 throw new InvalidOperationException("Screens isn't running");
             var panel = Panel(block, surface);
-            fps = MathHelper.Clamp(fps, 1, 30);
+            var size = Size(panel, MathHelper.Clamp(resolution, 64, 2048));
 
             var key = (block.EntityId, surface);
             ContentType previousContent = panel.ContentType;
             string previousScript = panel.Script;
-            if (Mirrors.TryGetValue(key, out var old))
+            if (Feeds.TryGetValue(key, out var old))
             {
                 previousContent = old.PreviousContent;
                 previousScript = old.PreviousScript;
-                old.Capture.Dispose();
+                Feeds.Remove(key);
+                old.Source.Dispose();
+                MyRenderProxy.DestroyGeneratedTexture(old.Texture);
             }
 
             EnsureScriptRegistered();
             panel.ContentType = ContentType.SCRIPT;
             panel.Script = MirrorScript.Id;
-            var size = Size(panel);
-            var m = new Mirror
+            string texture = $"SEScreens_{block.EntityId}_{surface}";
+            MyRenderProxy.CreateGeneratedTexture(texture, size.X, size.Y, MyGeneratedTextureType.RGBA, 1, null, generateMipmaps: true, immediatelyReady: true);
+            var f = new Feed
             {
                 Block = block,
                 Surface = surface,
                 Panel = panel,
-                Window = window,
+                Info = info,
+                Texture = texture,
                 Fps = fps,
                 PreviousContent = previousContent,
                 PreviousScript = previousScript,
-                Capture = new WindowCapture(window.Handle, size.X, size.Y, MyRenderComponentScreenAreas.GetTextureByteCount(size), fps),
+                Source = create(size.X, size.Y),
             };
-            Mirrors[key] = m;
-            return Describe(m);
+            Feeds[key] = f;
+            return Describe(f);
         }
 
-        // False if that surface wasn't mirroring.
+        // False if that surface wasn't showing anything of ours.
         public static bool StopMirror(long blockId, int surface)
         {
-            if (!Mirrors.ContainsKey((blockId, surface)))
+            if (!Feeds.ContainsKey((blockId, surface)))
                 return false;
             End((blockId, surface), restore: true);
             return true;
@@ -202,8 +241,8 @@ namespace SEScreens
 
         public static int StopAll()
         {
-            int count = Mirrors.Count;
-            foreach (var key in Mirrors.Keys.ToList())
+            int count = Feeds.Count;
+            foreach (var key in Feeds.Keys.ToList())
                 End(key, restore: true);
             return count;
         }
@@ -220,20 +259,27 @@ namespace SEScreens
 
         private static void End((long, int) key, bool restore)
         {
-            var m = Mirrors[key];
-            Mirrors.Remove(key);
-            m.Capture.Dispose();
-            if (!restore || m.Block.Closed)
+            var f = Feeds[key];
+            Feeds.Remove(key);
+            f.Source.Dispose();
+            if (!f.Block.Closed)
+                // Back on the game's own texture before ours goes. Forced: the panel's cache still thinks it's bound.
+                f.Panel.ChangeRenderTexture(f.Panel.Area, f.Panel.GetRenderTextureName(), isForced: true);
+            MyRenderProxy.DestroyGeneratedTexture(f.Texture);
+            if (!restore || f.Block.Closed)
                 return;
-            // Back to what the screen showed before; a screen that was already on Window Mirror goes to its idle card.
-            if (m.PreviousContent == ContentType.SCRIPT && m.PreviousScript == MirrorScript.Id)
+            // Back to what the screen showed before; a screen that was already on Window Mirror keeps its idle card.
+            if (f.PreviousContent == ContentType.SCRIPT && f.PreviousScript == MirrorScript.Id)
                 return;
-            m.Panel.ContentType = m.PreviousContent;
-            m.Panel.Script = m.PreviousContent == ContentType.SCRIPT ? m.PreviousScript : "";
-            // Multi-screen blocks (cockpits, consoles) don't redraw a screen for a content change alone, so it kept
-            // showing the mirror's texture; update it now, as the block's own 10-tick update would.
-            m.Panel.UpdateAfterSimulation(m.Block.IsWorking, isInRange: true);
+            f.Panel.ContentType = f.PreviousContent;
+            f.Panel.Script = f.PreviousContent == ContentType.SCRIPT ? f.PreviousScript : "";
+            // Multi-screen blocks (cockpits, consoles) don't redraw a screen for a content change alone; update it
+            // now, as the block's own 10-tick update would.
+            f.Panel.UpdateAfterSimulation(f.Block.IsWorking, isInRange: true);
         }
+
+        private static MyRenderComponentScreenAreas Render(MyTextPanelComponent panel) =>
+            PanelRender?.GetValue(panel) as MyRenderComponentScreenAreas;
 
         private static MyTextPanelComponent Panel(IMyTerminalBlock block, int surface)
         {
@@ -246,23 +292,29 @@ namespace SEScreens
             return panel;
         }
 
-        private static Vector2I Size(MyTextPanelComponent panel) =>
-            new Vector2I(Math.Max(1, (int)panel.TextureSize.X), Math.Max(1, (int)panel.TextureSize.Y));
-
-        private static MirrorInfo Describe(Mirror m) => new MirrorInfo
+        // The game's texture has the screen's aspect ratio (its UVs cover it whole); scale it to resolution.
+        private static Vector2I Size(MyTextPanelComponent panel, int resolution)
         {
-            BlockId = m.Block.EntityId,
-            Block = m.Block.CustomName,
-            Surface = m.Surface,
-            Window = m.Window.Title,
-            Process = m.Window.Process,
-            Handle = m.Window.HandleText,
-            Fps = m.Fps,
-            Width = m.Capture.Width,
-            Height = m.Capture.Height,
-            Captured = m.Capture.Frames,
-            Uploaded = m.Uploads,
-            Error = m.Capture.Error,
+            float w = Math.Max(1, panel.TextureSize.X), h = Math.Max(1, panel.TextureSize.Y);
+            float scale = resolution / Math.Max(w, h);
+            return new Vector2I(Math.Max(1, (int)(w * scale)), Math.Max(1, (int)(h * scale)));
+        }
+
+        private static MirrorInfo Describe(Feed f) => new MirrorInfo
+        {
+            BlockId = f.Block.EntityId,
+            Block = f.Block.CustomName,
+            Surface = f.Surface,
+            Kind = f.Info.Kind,
+            Window = f.Info.Title,
+            Process = f.Info.Detail,
+            Handle = f.Info.Handle,
+            Fps = f.Fps,
+            Width = f.Source.Width,
+            Height = f.Source.Height,
+            Captured = f.Source.Frames,
+            Uploaded = f.Uploads,
+            Error = f.Source.Error,
         };
     }
 }

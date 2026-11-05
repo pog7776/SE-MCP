@@ -42,7 +42,7 @@ def handlers(calls: list) -> dict[str, Any]:
             {"handle": "0x1A2B", "title": "Spotify Premium", "process": "Spotify", "width": 1280, "height": 720}]}),
         "mirror.start": record("start", lambda p: mirror(p["surface"], fps=p["fps"])),
         "mirror.stop": record("stop", lambda p: {"stopped": 1 if p else len(running)}),
-        "mirror.list": record("list", {"mirrors": running}),
+        "mirror.list": record("list", {"mirrors": running, "gameFps": 60, "frameMs": 16.7}),
     })
     return h
 
@@ -71,7 +71,7 @@ async def test_list_windows_empty():
 async def test_mirror_window_resolves_screen_name_and_passes_title():
     calls: list = []
     text = await call("mirror_window", {"block": "Control Seat", "window": "spotify", "surface": "top left", "fps": 20}, calls)
-    assert calls == [("start", {"blockId": SEAT, "surface": 1, "fps": 20, "window": "spotify"})]
+    assert calls == [("start", {"blockId": SEAT, "surface": 1, "fps": 20, "resolution": 1024, "window": "spotify"})]
     assert text.startswith("Mirroring: Control Seat #1: 'Spotify Premium' (Spotify) at 20 fps, 512x512")
 
 
@@ -97,4 +97,9 @@ async def test_stop_all_mirrors_lists_what_ran():
 
 async def test_list_mirrors():
     text = await call("list_mirrors", {}, [])
-    assert "- Control Seat #1: 'Spotify Premium' (Spotify) at 15 fps, 512x512, 38 frames shown" == text
+    assert text.startswith("- Control Seat #1: 'Spotify Premium' (Spotify) at 15 fps, 512x512, 38 frames shown")
+
+
+async def test_list_mirrors_reports_game_frame_rate():
+    text = await call("list_mirrors", {}, [])
+    assert text.endswith("Game: 60 fps, 16.7 ms/frame.")

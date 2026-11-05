@@ -1,0 +1,38 @@
+using System;
+
+namespace SEScreens
+{
+    // Anything that can drive a screen: a captured window, the test card, a browser, later streams or other
+    // plugins pushing frames. Screens owns the texture and the upload; a source only makes pixels.
+    //
+    // Frames are RGBA, Width x Height, row 0 at the top, in an array of FrameBuffer.Bytes(Width, Height) bytes (room for
+    // the mip chain, which the GPU fills). Alpha is the screen material's metalness: use 0. Each frame must be a
+    // new array, because the renderer keeps it until it uploads.
+    public interface IFrameSource : IDisposable
+    {
+        int Width { get; }
+        int Height { get; }
+        // True once the source can't produce any more (its window closed, its process exited).
+        bool Ended { get; }
+        string Error { get; }
+        int Frames { get; }
+
+        // Thread-safe. The newest frame since the last call, or null if nothing new.
+        byte[] TakeLatest();
+    }
+
+    // What a screen shows, for listings.
+    public sealed class SourceInfo
+    {
+        public string Kind;    // "window", "testcard", "browser", ...
+        public string Title;
+        public string Detail;  // window: process name; browser: URL
+        public string Handle;  // window handle as 0x..., else null
+    }
+
+    public static class FrameBuffer
+    {
+        // Level 0 plus the mip chain below it, as MyRenderComponentScreenAreas.GetTextureByteCount sizes it.
+        public static int Bytes(int width, int height) => (int)(width * height * 4 * 1.3333333f);
+    }
+}
