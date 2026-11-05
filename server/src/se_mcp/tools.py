@@ -18,6 +18,7 @@ from . import companion
 from . import docking
 from . import forecast as forecast_mod
 from . import format as fmt
+from . import guide as guide_mod
 from . import hud as hud_mod
 from . import items as items_mod
 from . import naming
@@ -503,6 +504,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                 line += f" \"{e['text']}\""
             if e.get("track"):
                 line = f"{e['id']}: tracking {', '.join(e['track'])} ({e.get('tracking', 0)} boxed)"
+            if e.get("legs"):
+                line = f"{e['id']}: route, heading for point {e['leg']} of {e['legs']}"
             if e.get("bind"):
                 line += f", live from {e['bind']}"
             if e.get("bindError"):
@@ -511,6 +514,124 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                 line += f", gone in {e['expiresIn']:g} s"
             lines.append(line)
         return "\n".join(lines)
+
+    # --- Guiding the player. ---
+
+    async def _guide_target(to: str, grid: str | None) -> dict[str, Any]:
+        """Where `to` is: coordinates or a GPS, else a ship by name, else a block (on `grid` or the current one)."""
+        if grid is None:
+            try:
+                name, point = await autopilot.resolve_target(bridge, to)
+                return {"name": name, "point": point}
+            except ResolveError:
+                pass
+            try:
+                target = await resolve.grid(bridge, to)
+                motion = await bridge.call("grid.motion", {"gridId": target["id"]})
+                return {"name": target.get("name") or to, "point": motion["center"], "gridId": target["id"], "ship": True}
+            except ResolveError as ship_error:
+                try:
+                    found = await resolve.block(bridge, to)
+                except ResolveError as block_error:
+                    raise ResolveError(f"Couldn't find '{to}' as a GPS, ship or block. {ship_error} {block_error}") from None
+        else:
+            found = await resolve.block(bridge, to, grid)
+        info = await bridge.call("block.get", {"blockId": found["id"]})
+        return {"name": f"{info['block']['name']} on {info['gridName']}", "point": info["position"],
+                "gridId": info["block"]["gridId"], "blockId": found["id"]}
+
+    @tool
+    async def guide_to(to: str, grid: str | None = None, arrive_m: float = 3, avoid: bool = True,
+                       note: str | None = None) -> str:
+        """Show the player the way somewhere on their HUD: a marker on the next waypoint with the distance left,
+        and an arrow at the screen edge when it's behind them. The player flies or walks there themselves.
+        to: a GPS name, "x, y, z", a ship's name, or a block's name (on `grid`, default the current ship).
+        avoid: route around ships and asteroids in the way (line-of-sight checks, with detour points beside each
+        obstacle). The marker moves on as each waypoint is reached and clears within arrive_m of the end; an
+        "arrived" event then goes to the in-game AI. One guide at a time; stop_guide removes it.
+        Works while piloting too: the route looks through the player's ship and keeps its radius clear, so set
+        arrive_m to what's close enough for it (e.g. 200 to bring a big ship near a station).
+        note: what to do when they get there ("open the hangar door", "start the welders"). The arrived event
+        wakes the in-game AI with this note, so "go there and I'll do X" needs no polling."""
+        target = await _guide_target(to, grid)
+        status = await bridge.call("character.status", {})
+        start = guide_mod.as_vec(status["position"])
+        end = guide_mod.as_vec(target["point"])
+        target_grid = target.get("gridId")
+
+        # Piloting: look through our own ship, and make room for its size.
+        own = (await bridge.call("player.context", {})).get("controlled") or {}
+        own_grid = own.get("gridId")
+        radius = 0.0
+        if own_grid:
+            radius = float((await bridge.call("grid.motion", {"gridId": own_grid})).get("radius") or 0)
+            if own_grid == target_grid:
+                return f"You're aboard {target['name'].split(' on ')[-1]} already; get out of the seat to be guided round it."
+        los: dict[str, Any] = {"ignoreId": own_grid} if own_grid else {}
+
+        async def ray(a: list[float], b: list[float], to_end: bool) -> dict[str, Any] | None:
+            r = await bridge.call("los.check", {"from": a, "to": b, **los})
+            if r["clear"]:
+                return None
+            hit = r["hit"]
+            # Reaching the target's own ship counts as getting there: a ship anywhere on its hull, a block near it.
+            if target_grid and hit.get("entityId") == target_grid and to_end:
+                near = guide_mod.norm(guide_mod.sub(guide_mod.as_vec(hit["position"]), end))
+                if target.get("ship") or near <= 5 + radius:
+                    return None
+            return hit
+
+        async def blocked(a: list[float], b: list[float]) -> dict[str, Any] | None:
+            hit = await ray(a, b, b == end)
+            if hit is not None or radius < 3:
+                return hit
+            # A ship sweeps a tube, not a line: check its edges too.
+            for a2, b2 in guide_mod.beside(a, b, radius):
+                hit = await ray(a2, b2, b == end)
+                if hit is not None:
+                    return hit
+            return None
+
+        route, obstacle, checks = await guide_mod.plan_route(start, end, blocked, depth=2 if avoid else 0,
+                                                             clearance=radius, max_checks=40 if radius >= 3 else 120)
+        warning = ""
+        if route is None:
+            route = [end]
+            warning = (f" No clear way found around {guide_mod.obstacle_name(obstacle)} ({checks} checks), so the marker "
+                    "just points at it" + (": it's probably inside, find a door or airlock." if target_grid else "."))
+        if target.get("ship"):
+            # Stop at the hull facing the player, not the ship's centre.
+            before = route[-2] if len(route) > 1 else start
+            r = await bridge.call("los.check", {"from": before, "to": end, **los})
+            if not r["clear"] and r["hit"].get("entityId") == target_grid:
+                hull = guide_mod.as_vec(r["hit"]["position"])
+                route[-1] = guide_mod.add(hull, guide_mod.unit(guide_mod.sub(before, hull)), arrive_m)
+
+        if len(route) == 1 and guide_mod.norm(guide_mod.sub(route[0], start)) <= arrive_m:
+            return f"You're already within {arrive_m:g} m of {target['name']}."
+        element: dict[str, Any] = {
+            "id": "guide", "kind": "route", "route": route, "name": target["name"], "arriveRadius": arrive_m,
+            "text": "{name} {dist}" + (" ({step})" if len(route) > 1 else ""), "color": "#4FC3F7", "thickness": 2}
+        if target.get("blockId"):
+            element["blockId"] = target["blockId"]
+        element["note"] = note
+        await bridge.call("overlay.set", {"elements": [element]})
+
+        length = guide_mod.path_length(start, route)
+        if len(route) == 1:
+            how = "in a straight line"
+        else:
+            how = f"via {len(route) - 1} waypoint(s) around {guide_mod.obstacle_name(obstacle)}"
+        ship = f" Routed for {own.get('gridName') or 'your ship'} ({radius:.0f} m radius), looking through it." if radius >= 3 else ""
+        return (f"Guiding you to {target['name']}: {guide_mod.distance_text(length)} {how}. The HUD marker moves on "
+                f"as you reach each point and clears within {arrive_m:g} m of the end." + ship + warning
+                + (" On arrival the in-game AI is woken with your note." if note else ""))
+
+    @tool
+    async def stop_guide() -> str:
+        """Remove the HUD guide that guide_to put up."""
+        r = await bridge.call("overlay.remove", {"ids": ["guide"]})
+        return "Guide removed." if r["removed"] else "No guide was showing."
 
     @tool
     async def production(grid: str | None = None) -> str:

@@ -20,7 +20,7 @@ namespace SEMcp.Host
             "dock.get", "weapons.get", "sun.info", "environment.get", "sensors.get", "damage.get", "radio.antennas", "block.get",
         };
 
-        private static readonly string[] Kinds = { "text", "rect", "bar", "line", "arrow", "circle", "icon", "marker", "track" };
+        private static readonly string[] Kinds = { "text", "rect", "bar", "line", "arrow", "circle", "icon", "marker", "track", "route" };
 
         // What a tracker can follow.
         private static readonly string[] Trackable = { "meteors", "missiles", "enemies", "neutrals", "friends", "unowned", "grids", "players" };
@@ -45,6 +45,16 @@ namespace SEMcp.Host
 
         private static OverlayScreen screen;
         private static Dispatcher dispatcher;
+
+        // Set by the host once its event hub exists: a route the player finishes becomes an "arrived" event.
+        internal static EventHub Events;
+
+        // Game thread (the overlay's Update).
+        internal static void RouteArrived(OverlayElement e)
+        {
+            string where = string.IsNullOrEmpty(e.Name) ? "the end of the route" : e.Name;
+            Events?.Publish("arrived", "guide", $"The player reached {where}.", new JsonObject { ["id"] = e.Id, ["name"] = e.Name, ["note"] = e.Note });
+        }
 
         public static void Register(Dispatcher d)
         {
@@ -91,6 +101,8 @@ namespace SEMcp.Host
                     throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': an icon needs icon (a name or Textures\\... path)");
                 if (e.Kind == "track" && e.TrackWhat.Count == 0)
                     throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': a tracker needs track ({string.Join(", ", Trackable)})");
+                if (e.Kind == "route" && (e.Route == null || e.Route.Count == 0))
+                    throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': a route needs route: [[x,y,z], ...] (at least one point)");
                 if (e.Kind == "marker" && e.AnchorEntity == 0 && e.Anchor == null)
                     throw new RpcException(ErrorKind.InvalidParams, $"Element '{id}': a marker needs blockId, gridId or position");
                 s.Elements[id] = e;
@@ -128,6 +140,16 @@ namespace SEMcp.Host
                 e.TrackWhat = new HashSet<string>(what);
                 e.NextScan = DateTime.MinValue;
             }
+            if (o["route"] is JsonArray route)
+            {
+                e.Route = route.Select(n => n is JsonArray v && v.Count == 3 ? new Vector3D((double)v[0], (double)v[1], (double)v[2])
+                    : throw new RpcException(ErrorKind.InvalidParams, "Each route point is [x, y, z]")).ToList();
+                e.Leg = 0;
+            }
+            e.ArriveRadius = MathHelper.Clamp(o.Number("arriveRadius", e.ArriveRadius), 0.5, 1000);
+            e.Name = o.String("name") ?? e.Name;
+            if (o.ContainsKey("note"))
+                e.Note = o.String("note");
             e.Range = MathHelper.Clamp(o.Number("range", e.Range), 1, 100000);
             e.IncomingOnly = o.Bool("incoming", e.IncomingOnly);
             e.MaxTargets = (int)MathHelper.Clamp(o.Number("maxTargets", e.MaxTargets), 1, 200);
@@ -221,6 +243,8 @@ namespace SEMcp.Host
                 anchored = e.AnchorEntity != 0 || e.Anchor != null,
                 track = e.Kind == "track" ? e.TrackWhat.ToList() : null,
                 tracking = e.Kind == "track" ? e.Tracked.Count : (int?)null,
+                leg = e.Kind == "route" ? e.Leg + 1 : (int?)null,
+                legs = e.Kind == "route" ? e.Route?.Count : null,
                 expiresIn = e.Expires is DateTime t ? Math.Round((t - DateTime.UtcNow).TotalSeconds) : (double?)null,
             }).ToList(),
         };

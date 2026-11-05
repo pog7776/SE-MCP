@@ -61,6 +61,7 @@ namespace SEMcp.Host
             StartCapture();
 
             events = new EventHub();
+            OverlayMethods.Events = events;
             watches = new Watches(events, dispatcher, Log);
             watches.Register();
             watches.Load();
@@ -103,6 +104,7 @@ namespace SEMcp.Host
             comms?.Dispose();
             comms = null;
             watches = null;
+            OverlayMethods.Events = null;
             events?.Close();
             HostMethods.ClearAllHighlights();
             OverlayMethods.Close();

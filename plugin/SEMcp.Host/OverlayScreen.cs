@@ -27,7 +27,7 @@ namespace SEMcp.Host
     internal sealed class OverlayElement
     {
         public string Id;
-        public string Kind; // text, rect, bar, line, arrow, circle, icon, marker, track
+        public string Kind; // text, rect, bar, line, arrow, circle, icon, marker, track, route
         public float X, Y, W, H, X2, Y2;
         public string Text;
         public Color Color = Color.White;
@@ -61,6 +61,14 @@ namespace SEMcp.Host
         public int MaxTargets = 30;
         public List<long> Tracked = new List<long>();
         public DateTime NextScan;
+
+        // route: waypoints the player is guided along. Leg is the one they're heading for; reaching it (within
+        // ArriveRadius, twice that for turns on the way) moves on. With an anchor, the last point follows it.
+        public List<Vector3D> Route;
+        public int Leg;
+        public double ArriveRadius = 3;
+        public string Name;
+        public string Note; // what the AI meant to do on arrival; carried in the arrived event
     }
 
     // A screen on top of the game HUD that draws our elements. It never takes focus or input, hides with the HUD
@@ -112,6 +120,12 @@ namespace SEMcp.Host
                         e.BindError = ex.Message;
                     }
                 }
+                if (e.Kind == "route" && e.Route != null)
+                {
+                    var here = access.Origin;
+                    while (e.Leg < e.Route.Count && Vector3D.Distance(here, RoutePoint(e, e.Leg)) <= (e.Leg == e.Route.Count - 1 ? e.ArriveRadius : 2 * e.ArriveRadius))
+                        e.Leg++;
+                }
                 if (e.Kind == "track" && now >= e.NextScan)
                 {
                     e.NextScan = now.AddSeconds(0.5);
@@ -124,6 +138,11 @@ namespace SEMcp.Host
                         e.BindError = ex.Message;
                     }
                 }
+            }
+            foreach (var e in Elements.Values.Where(e => e.Kind == "route" && e.Route != null && e.Leg >= e.Route.Count).ToList())
+            {
+                Elements.Remove(e.Id);
+                OverlayMethods.RouteArrived(e);
             }
             return base.Update(hasFocus);
         }
@@ -262,7 +281,38 @@ namespace SEMcp.Host
                             Target(entity, e, screen, TrackLabel(e, entity));
                     break;
                 }
+                case "route":
+                {
+                    if (e.Route == null || e.Leg >= e.Route.Count)
+                        return;
+                    // The way ahead: faint lines and dots through the coming waypoints, the next one marked.
+                    double remaining = Vector3D.Distance(MySector.MainCamera.Position, RoutePoint(e, e.Leg));
+                    Vector2? previous = null;
+                    for (int i = e.Leg; i < e.Route.Count; i++)
+                    {
+                        if (i > e.Leg)
+                            remaining += Vector3D.Distance(RoutePoint(e, i - 1), RoutePoint(e, i));
+                        var p = Project(RoutePoint(e, i), screen, out _);
+                        if (p != null && previous != null)
+                            Line(previous.Value, p.Value, new Color(e.Color, 0.5f), 1);
+                        if (p != null && i > e.Leg)
+                            Box(p.Value - new Vector2(3), new Vector2(6), new Color(e.Color, 0.6f));
+                        previous = p;
+                    }
+                    string template = (e.Text ?? "{name} {dist}")
+                        .Replace("{name}", e.Name ?? "")
+                        .Replace("{step}", $"{e.Leg + 1}/{e.Route.Count}");
+                    TargetPoint(RoutePoint(e, e.Leg), e, screen, Format(e, template, null, remaining).Trim(), Math.Max(4, e.W > 0 ? e.W * screen.Height : 10));
+                    break;
+                }
             }
+        }
+
+        private static Vector3D RoutePoint(OverlayElement e, int i)
+        {
+            if (i == e.Route.Count - 1 && e.AnchorEntity != 0 && MyEntities.TryGetEntityById(e.AnchorEntity, out MyEntity entity))
+                return entity.PositionComp.WorldAABB.Center;
+            return e.Route[i];
         }
 
         // --- Things in the world. ---

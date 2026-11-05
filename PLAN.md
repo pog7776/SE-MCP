@@ -221,7 +221,10 @@ Client config (README):
 6. ✅ **Vision + sensing**: `camera.capture` (host, offscreen render via a Harmony prefix on `MyRender11.DrawScene`; CameraLCD approach), `camera.list` / `camera.raycast` / `sensors.get`. Tools: `list_cameras`, `camera_view`, `ship_photo` (drone shot from any side), `camera_scan`, `sensors`, `screenshot(hide_hud=True)`. Captures are saved to `%AppData%\SpaceEngineers\SEMcp\captures`. Verified live: every camera on the Red Ship renders in about 50 ms. Sensors were verified live too (one triggered by the player, one idle). Not verified yet: Interim (.NET 10).
 7. **More of the game**: inventories, production, build planning, screens, highlights, suit, environment, forecasts, ore detectors, combat, saves, docking. See below.
 8. **Fair play**: a switchable mode that limits what the assistant knows and can reach to what the ship could plausibly sense and talk to. See below.
-9. **Polish**: README, protocol.md, fake-bridge tests, error messages, a `selftest` tool, and the first real run of the Interim (.NET 10) build (deliberately left until all milestones are done). The end-to-end MCP stdio run already passes for every read tool.
+9. **Polish**: README, protocol.md, fake-bridge tests, error messages, a `selftest` tool, and the first real run of the Interim (.NET 10) build. The end-to-end MCP stdio run already passes for every read tool.
+   - ✅ Public release prep (2026-11-05): MIT licence, portable paths, install docs (README) and developer docs (DEVELOPING.md).
+   - ✅ Cold start (2026-11-05): the host failed to load at game launch, because `ChatInbox` subscribed through `MyAPIGateway.Utilities`, which is null until a world loads. It worked before only because hot reloads happen in a world. It now subscribes to `MyAPIUtilities.Static`, which always exists. Anything else the host touches in `Start()` must work from the main menu too.
+   - First Interim (.NET 10) run (2026-11-05, .NET 10.0.14, Pulsar Interim): cold start OK (the host loaded at game launch with chat, the Comms tab and the Harmony camera patch). Reads, offscreen camera renders, `ship_photo`, the window `screenshot` and the HUD overlay all work. Pending: the player checking the HUD and `/ai` + Comms in game; writes, flight and docking haven't been run on Interim yet.
 10. **Companion** (after the core is done): the assistant as a ship/suit AI you talk to in-game, plus game events (damage, destroyed blocks, low resources, chat, new contacts). See below.
 11. **In-game UI and displays**: the MCP Display screen app, the assistant's own HUD and windows, and (opt-in) authoring new screen apps at runtime. See below.
 
@@ -330,6 +333,12 @@ Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the
     - ✅ `target_block` (2026-10-30; the companion couldn't aim at "the Whale's remaining hydrogen tank", having no block positions): `block.get` now returns `position`/`forward`/`up`/`gridVelocity`. Aims turrets (leading a moving target) and/or fixed guns (turning the ship) at one block, says what each shot meets first (armour in front is normal; another ship in the way holds that weapon's fire), `fire` shoots once, `miss_by_m` aims beside it for a warning shot. Verified live: 7 Red Ship turrets on the Whale's tank, "6 weapons' shots meet Half Armor Block first, 6-7 m before" it.
     - ✅ Target acquisition (2026-10-30; a warning shot went out before the turret had swung round): `target_block` and `aim_turrets` wait until each barrel points at the target (`aimDirection` within 1.5 deg, 4 deg when leading), report "On target ... (within N s)" or "couldn't get on target (N deg off)", and `target_block` fires only turrets on target. Live: 5 Red Ship turrets on target in 0.4 s; Assault Cannon Turret - Right and Gatling Turret 2 stop 14-28 deg short (likely their arc).
     - ✅ Block transforms (2026-10-30; asked to "aim 10 m forward of the Whale pilot seat", the AI had no block axes): `block.get` adds `right`, `cell`, `cellSize`; `inspect_block` prints the world position, axes, grid cell and the block's place on its ship. `target_block` takes `offset_m` [right, up, forward] in the block's or its ship's axes, so offsets are computed in code rather than by the model. Live: 5 turrets on the point 10 m in front of the Whale's pilot seat.
+    - **Moving targets** (2026-11-05 review; only tested at rest so far). Turret ballistics are the game's: `turret.aim` with a velocity calls `TrackTarget(pos, vel)`, and the turret's targeting system solves the intercept from the projectile speed and the relative velocity (as in `MyWeaponPrediction`). Our part is what we feed it, and that has gaps:
+        - `target_block` sends one snapshot of the block's position and its ship's velocity. A target that accelerates or turns drifts off. Re-send it every ~0.5 s while acquiring and firing, or hand the turret the entity (`TrackTarget(entity)`, which the game follows itself) when there's no offset.
+        - The snapshot uses the grid's linear velocity, not the velocity of the block's own point, so a block far from the centre of a spinning ship is led wrongly. Add angular velocity × offset.
+        - Fixed guns get no lead at all: `point_ship` aims at where the block is now. Solve the same intercept in Python (projectile speed from the ammo definition, relative velocity) and keep re-pointing while the target moves (needs `hold_heading`).
+        - `track_target` keeps the target with camera raycasts and re-aims turrets each interval, from the last fix.
+        - Test live against a moving drone at a few speeds, and report the miss distance.
     - Next: `fire_weapons` bursts that respect reloads ("fire 4 rounds" from a 2-round turret), and target-lock on a block via the game's own lock.
     - Next: `level_ship` (up against gravity, for planets; needs gravity direction in `grid.motion`), a roll target for `point_ship` ("keep upright to the station"), `hold_heading`/track a moving target (re-point every second until told to stop, plugin-side loop from item 16), and a clearance sweep before turning (item 15's `path.sweep`, using the ship's swing radius).
     - **Piloting quality** (2026-10-30; asked whether the AI needs easing curves or PID access): no raw gains for the model, since it acts every few seconds and can't tune a 7 Hz loop. The AI states goals (and later a style: careful/normal/aggressive); controllers stay in code and report how the turn went. Steps:
@@ -338,6 +347,55 @@ Lessons from docking the 1,100 t Blue Ship (no RC) by its right connector to the
         3. Next: lead moving targets (feed-forward of the target's angular rate) for `track_target`, `hold_heading` and fixed guns on a moving ship.
         4. Next: a plugin-side 60 Hz inner loop for hovering, `hold_heading` and combat, with Python sending only set-points (the Python loop is ~150 ms plus several RPCs per gyro per step).
     - Next, beyond rotation: `stop_ship` (kill all motion), `strafe`/`move_ship` by meters in the pilot's frame, `set_speed` for cruise, and a `ship_controls` summary (what's on/off, overrides, autopilot) so the AI can undo what it did.
+
+19. **Thrust model and planned maneuvers** (2026-11-05; asked whether the AI can plan burns without constant polling). Builds on item 16 (the pilot loop inside the plugin) and item 18 step 2 (the braking curve for thrust).
+    - Today: `grid.motion` with `thrusters` returns each thruster's push direction and `MaxEffectiveThrust` (already scaled for atmosphere), plus the ship's mass. Only the docking pilot uses them, and its loop runs over RPC.
+    - **Thrust envelope** (a read-only `ship_thrust` tool): the maximum acceleration in each direction the pilot sees, from the working thrusters' effective thrust ÷ mass, less gravity along that axis, split by kind (ion, atmospheric, hydrogen). Add burn time limited by hydrogen, from fuel use in the thruster definitions. It answers "can it lift off with this cargo?" and "how far does it take to stop from 100 m/s?".
+    - **Burn planner** (Python, pure functions with tests): SE has no orbits, just Newtonian motion with a world speed cap and dampeners. So a move is: accelerate, coast, brake.
+      - Plan each leg from the envelope: its time, peak speed, braking point and fuel.
+      - Plan to a margin (e.g. 80% of thrust), so losing a thruster still stops the ship in time.
+      - Rotations use the braking curve the turn loop already measures.
+      - The plan is shown before anything moves.
+    - **Maneuver executor** (inside the plugin, every tick):
+      - Python sends the whole plan once, as legs with a velocity profile, an attitude and an end condition. The host flies it closed loop each frame with thrust and gyro overrides.
+      - The host publishes progress, finished and aborted on the event hub, so the AI waits on one event instead of polling.
+      - It aborts when something's in the way (`path.sweep`), thrust is lost, the ship drifts off track past a tolerance, or the player takes the controls.
+      - Overrides are released on finish, on abort and in `HostModule.Stop()`.
+    - **Closed loop, not timed open-loop burns:** mass changes with cargo, atmospheric thrust changes with altitude, gravity changes, and bumps happen, so timed burns drift. The plan sets the profile and the loop tracks it.
+    - Then `fly_to`, `dock`, `land` and `strafe` move onto the executor. Later: the maneuver library (orbit a point, strafe run, hold station) from "Later → Flight paths".
+
+20. **Suit piloting and guiding the player** (2026-11-05; asked "can you fly my suit around, help me navigate like you control a ship?"). Two levels, guidance first:
+    - ✅ **Guide me** (2026-11-05): `guide_to(to)` takes a GPS, coordinates, a ship or a block, and `stop_guide` removes it.
+      - It plans waypoints with `los.check`: detour points beside the obstacle on 8 sides, from 12 to 100 m out. It prefers one turn with both legs clear and recurses up to 2 turns, using at most 120 checks (`guide.py`, tested with sphere geometry).
+      - A ship target stops at the hull facing the player. For a block target, hits within 5 m of the block count as arrived.
+      - A new `route` overlay element advances waypoints in the game every frame, removes itself at the end and raises an `arrived` event for the companion. Nothing polls.
+      - Verified live on Interim: routed to the Red Ship's Corner Medical Room with 1 detour point in 0.35 s. The marker itself still needs the player's eyes, and arrival hasn't been tested yet.
+      - Verified live (2026-11-05): the `arrived` event fired at the medical room and the guide cleared itself. Piloting: the route looks through the player's own ship (`ignoreId`), spaces detours by its radius, and checks 4 edge lines `radius` out. `arrive_m` sets "close enough" (e.g. 200 m for a big ship). Unit-tested; not yet flown live.
+      - ✅ "Go there and I'll do X": `guide_to(note=...)` carries the note in the `arrived` event, and the runner wakes the in-game AI with it (`event_message`). So "go to the hangar and I'll open the door" needs no polling. Unit-tested; not yet run with the runner live.
+      - What the player expected (2026-11-05): **a path drawn in the world**, like a line on the floor through the doors, not a pin on the HUD. Today it's HUD pins with faint screen lines between waypoints, little more than `hud_draw` markers could do. Plan:
+        1. **A real path** from the game's avoidance pathfinder (below): many points through corridors and doors, not 1-2 detour points.
+        2. **Draw it in 3D**: `MyTransparentGeometry.AddLineBillboard` / `AddPointBillboard` each frame from the host draws glowing segments and chevrons in the scene. They're depth-tested, so walls hide them, and they move with the ship (draw in the grid's frame). Fade the segments already passed, and pulse the next door.
+        3. Keep the HUD pin as the "where next" label, and the edge arrow for when it's behind you.
+      - Next:
+        - Interiors: a single ray can't find a way through corridors and doors, so a block deep inside a ship gets "find a door". Use the game's pathfinders (below).
+        - Clearance for the suit: a ray can pass a gap the suit can't. Check a few parallel rays, or use `path.sweep` with a 1 m sphere.
+        - Re-plan when the player strays far off the route.
+        - "The nearest cargo with ice" as a target.
+        - Optional spoken-style hints in chat ("turn left, 20 m").
+    - **The game's own pathfinders** (looked at 2026-11-05, to use for guidance and suit flight):
+      - **Autopilot avoidance** (`IMyPathfindingSessionComponent.FindAvoidPath(obstacleEntity, start, end, radius, out state)`, ModAPI; reach it with `MyServiceManager.Instance.GetService<IMyPathfindingSessionComponent>()`, as `MyPathFindingAvoidance` does). This is what the AI blocks use.
+        - It builds an octree graph of the free space in and around a grid on first use. Its door cache marks doors passable or not. While building, it returns `OctreeGenerating`, so try again.
+        - It takes a radius, so a suit-sized path (~1 m) through a station's interior and doors may come straight out of it.
+        - Needs a host method (`path.find`) and live trials: does it route inside a grid, or only around it?
+      - **Navmesh** (`MyRDPathfinding`, Recast/Detour, `MyAIComponent.Static.Pathfinding`): walking paths over planet surfaces and grids, for the NPC bots. Tiles generate in the background (`allTilesGenerated`). This one is for on-foot guidance on planets and in ships with gravity, not jetpack flight.
+    - Optional spoken-style hints in chat ("turn left, 20 m").
+    - **Fly my suit** (takeover, opt-in, jetpack first):
+      - Input: `IMyControllableEntity.MoveAndRotate(move, rotation, roll)` on the character (ModAPI; `MyCharacter` passes it on to the jetpack component). The game calls it with zero on any frame it wasn't called (`MyCharacter` ~line 4770), so it must be fed every tick from the plugin: the same loop inside the plugin as item 16, fed set-points from Python.
+      - To verify: the order relative to the player's own input in the same frame (their zero input may overwrite ours; a Harmony patch on the input step may be needed), and that it syncs in multiplayer like player input.
+      - Suit envelope: jetpack force (`MyCharacterJetpackComponent.ForceMagnitude`) ÷ the character's mass including inventory, with the hydrogen use. Then item 19's planner works for the suit too: accelerate, coast, brake, with dampeners on for the final stop.
+      - The player always wins: any key or mouse input from them cancels it at once (watch `MyInput` for movement keys), and so does a low hydrogen or energy reserve, or the health dropping. The jetpack must be on. Walking (with gravity or magnetic boots) and ladders come later.
+      - Uses: "take me to the Red Ship's airlock", "hold me here while I weld", "bring me back to the cockpit", and recovery if the player drifts off ("I'm out of reach, fly me back").
+    - Fair play: own suit, so `own`. Guidance to things only the world knows (an unknown ship) follows M8.
 
 17. **Renaming toolkit** (a skill set players use all the time; found 2026-10-30 when the companion tagged 74 blocks with 74 separate `rename_block` calls, each looked up by name):
     - ✅ `rename_blocks`: pick blocks by name/group/type (or the whole ship), then strip a prefix, find/replace, a template (`{name}` `{type}` `{n}` per type `{i}` overall, numbered in natural order) and add a prefix/suffix (skipped where present, so repeats are safe). `dry_run` previews. One `block.rename_many` call applies it by id. Verified live: 2 renames in 0.05 s.
@@ -481,6 +539,22 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
   - Maneuvers: reusable building blocks such as orbit a point, strafe run, hold station, approach and dock, patrol loop. Routes are built from them.
   - Formations: ships hold offsets relative to a leader (wedge, line, escort).
   - Definitions: bundle a few standard ones, and let the agent define, save and reuse its own (JSON, stored like PB backups). Built-in ones can come later.
+- **Other mods as data sources and displays** (asked 2026-11-05). Both are workshop mods, so their source ships with them in `steamapps/workshop/content/244850/<id>` (reference only, as with `ref/`).
+  - **Build Info** (Digi, 514062285): its conveyor overlay is the model for drawing in the world.
+    - **Compute** (`ConveyorNetworkCompute.cs`): for every conveyor-capable block it takes the port positions from its own per-definition data (from the model's conveyor dummies). It looks up the neighbour at each port's expected cell (`grid.GetCubeBlock`) and checks that the neighbour has a matching port. That gives links, which group into networks. Each network gets a colour; broken links are red, unused ports grey and isolated blocks dark red, with arrows for one-way links (sorters) and boxes on inventories.
+    - Everything is stored in grid-local coordinates, and it rescans on block added/removed, merge/split and connection changes.
+    - **Render** (`ConveyorNetworkRender.cs`): each frame it transforms local to world with the grid's matrix and sends lines, dots and arrows as one batch of billboards (`MyTransparentGeometry.AddBillboards`). A darker "shadow" pass is drawn under each for contrast.
+    - For us: (1) the same technique for item 20's 3D guide path (grid-local points, line and arrow billboards, shadow pass). (2) A `conveyor_map` tool: which inventories can reach which, what's cut off and why ("Assembler 2 is isolated: the conveyor behind it is broken"), and draw it on demand. Our inventory code already asks the game's own conveyor pathing (`CanConvey`); this adds the port-level "why".
+  - **Build Vision** (DarkHelmet, 1697184408): has a small client API over mod messages (`BvApiClient`: register by sending to mod id 1697184408 / queue 1965658453, then read accessors). It gives: menu open or closed, mode (peek / control / copy) and the target block (`IMyTerminalBlock`).
+    - A plugin can use mod messages too (`MyAPIUtilities.Static.RegisterMessageHandler` / `SendModMessage`), so the host can be a client.
+    - Data source: "the player has Build Vision open on Thruster 4, controlling it", so the AI can answer "what does this setting do?" or "set it like the others" about the block in hand. It could also be a watch or event source ("tell me what this block is when I open it").
+    - Display: the API doesn't let other mods add to its menu. Its UI runs on Rich HUD Framework (a separate mod with its own client API), so our own panels could use RHF if the player has it, or stay on our overlay.
+- **NPC crew** (asked 2026-11-05: "can you control an NPC?"). The game ships humanoid **Astronaut** bots (`Bots.sbc`: `Astronaut`, `Female_Astronaut`, model `NPC_Astronaut`, behaviour tree `AstronautBehavior` in `AIBehavior.sbc`). They're the people on economy stations.
+  - Their actions include `GotoTarget` (navmesh pathfinding), `GotoAndAimTarget`, `SitInSeat`, `FindCockpitWithinDistance`, `FindTerminalBlockWithinDistance`, `PlayEmoteAtBlock`, `GreetPlayer`, `Wander` and `Teleport`.
+  - Spawn one with `MyAIComponent.Static.SpawnNewBot(agentDefinition, position)`. Drive it by setting its target and memory, or through `MyAgentBot` navigation directly. The animal bots (wolves, spiders) use the same machinery.
+  - Ideas: an AI crewmate who walks the ship ("go sit in the helm"), carries things, stands watch, or is the companion's body (M10's avatar in the world).
+  - Unknowns: the navmesh needs gravity to walk, so zero-g crews may need jetpack steering; whether bots can hold tools or work blocks; how this behaves in multiplayer; and server-only AI (`Sync.IsServer`), which is fine for single player.
+  - Big, so later.
 - AI blocks: "follow me" (AI Basic Task mission) and route recording/replay (AI Recorder); writing AI Flight waypoints through game internals.
 - Production: reorder queue entries (`MoveQueueItemRequest`), refinery ore priority.
 - **In-world presence (optional):** the assistant reaches ships the way an in-game AI would, not by "god mode". Ideas: require an antenna/broadcast link from the player (suit radio on, ship antenna in range, `requireAntennaLink`); the "AI core" lives in a specific block (a tagged PB or the Automaton block), so damaging it cuts the assistant off; limited range or bandwidth; ships without a link stay unreachable. Off by default, a fun roleplay mode.

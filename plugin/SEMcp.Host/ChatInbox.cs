@@ -1,5 +1,6 @@
 using System;
 using Sandbox.ModAPI;
+using VRage.Game.ModAPI;
 
 namespace SEMcp.Host
 {
@@ -20,9 +21,13 @@ namespace SEMcp.Host
             this.log = log;
         }
 
+        // MyAPIGateway.Utilities is only set once a world loads, so a host started at game launch would find it null.
+        // It's always this singleton, which exists from the start and keeps its subscribers across worlds.
+        private static IMyUtilities Utilities => MyAPIUtilities.Static;
+
         public void Start()
         {
-            MyAPIGateway.Utilities.MessageEntered += OnMessage;
+            Utilities.MessageEntered += OnMessage;
             subscribed = true;
             log($"Chat: '{prefix} <message>' goes to the assistant");
         }
@@ -30,7 +35,7 @@ namespace SEMcp.Host
         public void Stop()
         {
             if (subscribed)
-                MyAPIGateway.Utilities.MessageEntered -= OnMessage;
+                Utilities.MessageEntered -= OnMessage;
             subscribed = false;
         }
 

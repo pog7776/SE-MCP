@@ -165,6 +165,10 @@ def context_line(event: dict[str, Any]) -> str:
 def event_message(event: dict[str, Any]) -> str:
     data = event.get("data") or {}
     lines = [context_line(event), f"[Event] {event.get('text')}"]
+    if event.get("type") == "arrived":
+        if data.get("note"):
+            lines.append(f"Note from when you set the guide: {data['note']}")
+        return "\n".join(lines)
     if data.get("note"):
         lines.append(f"Note from when the watch was set: {data['note']}")
     lines.append(f"(watch '{data.get('watch')}'; remove_watch or watch can change it.)")

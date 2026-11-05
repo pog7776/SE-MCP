@@ -148,6 +148,8 @@ TOOLS.update({
     "hud_remove": Fairness("own", None),
     "hud_clear": Fairness("own", None),
     "hud_list": Fairness("own", None),
+    "guide_to": Fairness("omniscient", None, "routes with raycasts against everything in the way; fair mode: obstacles and targets only from the contact table"),
+    "stop_guide": Fairness("own", None),
 })
 
 TOOLS.update({
