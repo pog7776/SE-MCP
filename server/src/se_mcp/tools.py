@@ -982,6 +982,57 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         r = await bridge.call("screen.mode", params)
         return f"{r['block']} #{r['after']['index']} {r['after']['name']}: now {_surface_line(r['after']).split(': ', 1)[1]}."
 
+    # --- Window mirror: desktop windows shown live on screens, on this PC only. ---
+
+    def _mirror_line(m: dict[str, Any]) -> str:
+        line = (f"{m['block']} #{m['surface']}: {m['window']!r} ({m['process']}) at {m['fps']} fps, "
+                f"{m['resolution'][0]}x{m['resolution'][1]}, {m['uploaded']} frames shown")
+        return line + (f", capture error: {m['error']}" if m.get("error") else "")
+
+    @tool
+    async def list_windows(match: str | None = None) -> str:
+        """Desktop windows that mirror_window can show on a screen, front-most first. match: part of the title or
+        the process name."""
+        params = {"filter": match} if match else {}
+        windows = (await bridge.call("mirror.windows", params))["windows"]
+        if not windows:
+            return "No matching windows." if match else "No windows."
+        return "\n".join(f"- {w['title']!r} ({w['process']}, {w['width']}x{w['height']}, handle {w['handle']})" for w in windows)
+
+    @tool
+    async def mirror_window(block: str, window: str, surface: str | int | None = None, fps: int = 15,
+                            grid: str | None = None) -> str:
+        """Show a desktop window live on an LCD or one of a cockpit's screens (sets it to the Window Mirror script).
+
+        window: part of its title or the process name (see list_windows), or a handle like 0x1A2B. fps: 1-30.
+        Only this PC sees the picture (other players see the idle card); no sound yet. Stop with stop_mirror, which
+        puts the screen back as it was."""
+        target = await resolve.block(bridge, block, grid)
+        params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface), "fps": fps}
+        params["handle" if window.lower().startswith("0x") else "window"] = window
+        m = await bridge.call("mirror.start", params)
+        return "Mirroring: " + _mirror_line(m)
+
+    @tool
+    async def stop_mirror(block: str | None = None, surface: str | int | None = None, grid: str | None = None) -> str:
+        """Stop mirroring a window on a screen and put the screen back as it was. No block: stop every mirror.
+        Without block or surface it also lists what was running."""
+        if block is None:
+            running = (await bridge.call("mirror.list", {}))["mirrors"]
+            r = await bridge.call("mirror.stop", {})
+            if not r["stopped"]:
+                return "No windows were being mirrored."
+            return f"Stopped {r['stopped']} mirror(s):\n" + "\n".join("- " + _mirror_line(m) for m in running)
+        target = await resolve.block(bridge, block, grid)
+        await bridge.call("mirror.stop", {"blockId": target["id"], "surface": await _surface_index(target["id"], surface)})
+        return f"Stopped the mirror on {target.get('name') or block}; the screen is back as it was."
+
+    @tool
+    async def list_mirrors() -> str:
+        """Windows currently mirrored onto screens, with frame counts."""
+        mirrors = (await bridge.call("mirror.list", {}))["mirrors"]
+        return "\n".join("- " + _mirror_line(m) for m in mirrors) if mirrors else "No windows are being mirrored."
+
     # --- Inventory management. Moves go through conveyors, like dragging items in the terminal. ---
 
     SUIT_WORDS = {"suit", "me", "my suit", "player", "character", "inventory", "my inventory"}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>SEScreens</AssemblyName>
+    <RootNamespace>SEScreens</RootNamespace>
+    <!-- New identity every build, like the host: SEMcp's host hot-reloads this assembly in development. -->
+    <AssemblyVersion>0.1.$(SEMcpBuildStamp)</AssemblyVersion>
+  </PropertyGroup>
+
+  <!-- Live content on LCDs. Standalone: no SEMcp references; SEMcp's host is the one that knows about this. -->
+  <ItemGroup>
+    <Reference Include="VRage.Render" HintPath="$(SEBin)\VRage.Render.dll" Private="false" />
+  </ItemGroup>
+</Project>

@@ -208,6 +208,17 @@ These cover every text surface of a block: LCDs, cockpit screens, programmable b
 | `screen.write` | `blockId`, `surface?`=0, `text?`, `append?`, `fontSize?`, `font?`, `fontColor?`, `background?` (`#RRGGBB` or `{r,g,b}`), `alignment?` (left/center/right), `padding?`, `clearImages?`=true | `block`, `before` (the surface as it was, full text), `after`. Switches the surface to text mode. Uses `IMyTextSurface.WriteText`, like a PB script; the block syncs it |
 | `screen.mode` | `blockId`, `surface?`=0, `mode` (`text`/`script`/`none`), `script` (for `script`; must be one the surface offers) | `block`, `before`, `after` |
 
+### Window mirror (host-only, via SEScreens)
+
+A desktop window shown live on a screen. The work is done by the SEScreens plugin (`plugin/SEScreens`, used as Pulsar's copy if installed, else loaded by the host); these RPCs add SEMcp's access checks, read-only mode and the `allowWindowMirror` switch. Without SEScreens they return `feature_disabled`. The surface is switched to the `SEScreens_WindowMirror` script ("Window Mirror" in the terminal's script list), and each captured frame replaces the pixels of the screen's own generated texture (`MyRenderProxy.ResetGeneratedTexture`). The game still binds, range-culls and powers the screen as usual. Capture is GDI `PrintWindow` (`PW_RENDERFULLCONTENT`) on a background thread, letterboxed to the screen's texture size. Only this PC sees the picture: other clients show the script's idle card, or nothing if they lack the host. Needs `allowWindowMirror` (default on), else `feature_disabled`. When the host owns SEScreens, a host stop (hot reload, exit) ends every mirror, puts its screen back, and takes the script out of the list.
+
+| Method | Params | Returns |
+|---|---|---|
+| `mirror.windows` | `filter?` (part of the title, or the process name) | `windows[]`: `handle` (`0x…`), `title`, `process`, `width`, `height` (client area). Visible, titled, uncloaked top-level windows of other processes, front-most first |
+| `mirror.start` | `blockId`, `surface?`=0, `window` (title part or process name; front-most match wins; `testcard` = grey and colour bars of known levels) or `handle`, `fps?`=15 (1-30) | the mirror: `blockId`, `block`, `surface`, `window`, `process`, `handle`, `fps`, `resolution` [w, h], `captured`, `uploaded`, `error`. Restarting on the same surface keeps the content it showed before the first mirror |
+| `mirror.stop` | `blockId` + `surface?`=0, or nothing (stop all) | `stopped` (count). The screen goes back to what it showed before |
+| `mirror.list` | | `mirrors[]` as above. A mirror ends by itself when its window closes, the block goes, or someone picks other content for the screen |
+
 ## Player and session methods (M7)
 
 | Method | Params | Returns |

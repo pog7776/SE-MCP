@@ -15,6 +15,8 @@ namespace SEMcp.Host
         public bool AllowPbCodePush { get; set; } = true;
         public bool AllowAutopilot { get; set; } = true;
         public bool AllowScreenshots { get; set; } = true;
+        // Desktop windows shown on LCDs, on this PC only.
+        public bool AllowWindowMirror { get; set; } = true;
         // Off by default: firing weapons needs an explicit opt-in.
         public bool AllowWeapons { get; set; }
         public double MaxRangeMeters { get; set; } = 50000;

@@ -12,7 +12,7 @@ namespace SEMcp.Host
     // Created by the loader on every (re)load. Owns the config, the TCP server and the game-thread queue.
     // Rule that keeps hot reload safe: never subscribe to game events or register anything with the game;
     // everything reaches the game through the queue drained in Update(). The exceptions (ChatInbox's chat hook,
-    // CommsChannel's and CameraCapture's Harmony patches) are undone in Stop().
+    // CommsChannel's and CameraCapture's Harmony patches, ScreensLink's resolver and SEScreens) are undone in Stop().
     public sealed class HostModule : IHostModule
     {
         private const double FrameBudgetMs = 2;
@@ -32,6 +32,8 @@ namespace SEMcp.Host
         {
             loader = context;
             config = Config.LoadOrCreate();
+            ScreensLink.Open(Log);
+            ScreensLink.Start(Log);
             queue = new GameThreadQueue();
             dispatcher = new Dispatcher(new CoreContext
             {
@@ -59,6 +61,7 @@ namespace SEMcp.Host
             ToolbarMethods.Register(dispatcher);
             OverlayMethods.Register(dispatcher);
             PathMethods.Register(dispatcher);
+            MirrorMethods.Register(dispatcher, config.AllowWindowMirror);
             StartCapture();
 
             events = new EventHub();
@@ -95,6 +98,14 @@ namespace SEMcp.Host
             {
                 Log($"Watches failed: {e}");
             }
+            try
+            {
+                ScreensLink.Update();
+            }
+            catch (Exception e)
+            {
+                Log($"Window mirrors failed: {e}");
+            }
         }
 
         public void Stop()
@@ -109,6 +120,7 @@ namespace SEMcp.Host
             events?.Close();
             HostMethods.ClearAllHighlights();
             OverlayMethods.Close();
+            ScreensLink.Close();
             capture?.Dispose();
             capture = null;
             AppDomain.CurrentDomain.AssemblyResolve -= ResolveLoaded;

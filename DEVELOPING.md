@@ -13,6 +13,7 @@ AI client ──MCP/stdio──▶ server/ (Python) ──TCP 127.0.0.1:8765, JS
 | `plugin/SEMcp.Loader` | C# | The Pulsar plugin. Tiny and stable: watches the host folder and (re)loads Host + Core | Game restart |
 | `plugin/SEMcp.Host` | C# | TCP server, config, the game-thread queue, and anything that needs game internals (GUI, rendering, Harmony) | **Hot reload** on build |
 | `core/` | C# | Game logic through the ModAPI only: one `*Service.cs` per area, registered on the `Dispatcher` | **Hot reload** on build |
+| `plugin/SEScreens` | C# | Live content on LCDs (window mirror; browser and audio planned). A plugin of its own with no SEMcp references: its public `Screens` API is what the Host's `mirror.*` RPCs call. Installed through Pulsar, `ScreensPlugin` runs it; otherwise the Host loads the copy deployed beside it and drives it (`ScreensLink`) | **Hot reload** on build (with the Host) |
 | `server/` | Python | The MCP server: tools, name resolution, formatting, safety checks, and the in-game companion runner | Restart the MCP server |
 
 - **Threads:** RPCs arrive on a background thread and run on the game thread through `GameThreadQueue`, drained in the plugin's `Update()` with a small per-frame budget. Game objects are only touched there.

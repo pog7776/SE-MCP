@@ -81,6 +81,10 @@ TOOLS.update({
     "list_screens": Fairness("own", None),
     "write_screen": Fairness("own", "construct"),
     "set_screen_mode": Fairness("own", "construct"),
+    "list_windows": Fairness("player", None, "the player's desktop, not game state"),
+    "mirror_window": Fairness("own", "construct", "shows a desktop window on a screen, on this PC only"),
+    "stop_mirror": Fairness("own", "construct"),
+    "list_mirrors": Fairness("own", None),
 })
 
 TOOLS.update({
