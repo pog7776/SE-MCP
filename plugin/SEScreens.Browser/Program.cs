@@ -13,10 +13,11 @@ namespace SEScreens.Browser
     //
     //   SEScreens.Browser.exe --map <name> --width W --height H --fps F --url URL --parent PID [--cache DIR]
     //
-    // Frames: SEScreens creates the shared memory <name> (FrameMap layout below); each paint is copied in as BGRA,
+    // Frames and sound: SEScreens creates the shared memory <name> (FrameMap layout below); each paint is copied in as BGRA,
     // guarded by a sequence number that is odd while a copy is in progress.
     // Commands, one per line on stdin: navigate URL | move X Y | down X Y [left|right|middle] | up X Y [...] |
-    // wheel X Y DY | text STRING | quit. Events, one per line on stdout: ready | loaded URL | error MESSAGE.
+    // wheel X Y DY | text STRING | eval SCRIPT | quit. Events, one per line on stdout: ready | loaded URL | error MESSAGE |
+    // console MESSAGE (the page's console.log) | audio ... (stream state).
     // Exits when told to, when stdin closes, or when the parent (the game) exits.
     internal static class Program
     {
@@ -33,6 +34,8 @@ namespace SEScreens.Browser
             height = a.Int("height", 1024);
             int fps = a.Int("fps", 30);
             string url = a.String("url", "about:blank");
+            // --audio system: no audio handler, Chromium plays to the Windows default device (for testing).
+            string audio = a.String("audio", "capture");
             string cache = a.String("cache", Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SEScreens", "cef-cache"));
 
@@ -49,34 +52,51 @@ namespace SEScreens.Browser
             settings.SetOffScreenRenderingBestPerformanceArgs();
             // Screens play video without anyone clicking first.
             settings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
+            // CefSharp.OffScreen's defaults include --mute-audio, which silences everything, the audio handler included.
+            settings.CefCommandLineArgs.Remove("mute-audio");
             if (!Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null))
             {
                 Send("error CEF failed to start");
                 return 1;
             }
 
-            browser = new ChromiumWebBrowser(url, new BrowserSettings { WindowlessFrameRate = fps });
+            // Created by hand once the handlers are set: CEF reads the audio handler when the browser is created.
+            var browserSettings = new BrowserSettings { WindowlessFrameRate = fps };
+            browser = new ChromiumWebBrowser(url, browserSettings, automaticallyCreateBrowser: false);
             browser.Size = new System.Drawing.Size(width, height);
             browser.Paint += OnPaint;
+            if (audio != "system")
+                browser.AudioHandler = new AudioToRing(view, FrameMap.AudioRing(width, height), Send);
             browser.LoadingStateChanged += (_, e) =>
             {
-                if (!e.IsLoading)
-                    Send("loaded " + browser.Address);
+                if (e.IsLoading)
+                    return;
+                // CEF can mute a whole browser apart from the page; make sure ours isn't.
+                var host = browser.GetBrowserHost();
+                if (host.IsAudioMuted)
+                {
+                    Send("audio was muted by CEF; unmuting");
+                    host.SetAudioMuted(false);
+                }
+                Send("loaded " + browser.Address);
             };
             browser.LoadError += (_, e) =>
             {
                 if (e.ErrorCode != CefErrorCode.Aborted)
                     Send($"error {e.ErrorCode} {e.FailedUrl}");
             };
+            browser.ConsoleMessage += (_, e) => Send("console " + e.Message);
+            browser.CreateBrowser(null, browserSettings);
             Send("ready");
 
             string line;
-            while ((line = Console.In.ReadLine()) != null)
+            // UTF-8, skipping a byte-order mark some parents write first (the console default is the OEM code page).
+            var input = new StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+            while ((line = input.ReadLine()) != null)
             {
                 try
                 {
-                    // Some parents write a byte-order mark before the first line.
-                    if (!Command(line.Trim().TrimStart('﻿')))
+                    if (!Command(line.Trim()))
                         break;
                 }
                 catch (Exception e)
@@ -113,6 +133,14 @@ namespace SEScreens.Browser
                     break;
                 case "wheel":
                     host?.SendMouseWheelEvent(Mouse(parts), 0, int.Parse(parts[3], CultureInfo.InvariantCulture));
+                    break;
+                case "audio":
+                    Send($"audio muted={host?.IsAudioMuted}");
+                    break;
+                case "eval":
+                    // Diagnostics: runs one line of script in the page; the result comes back as "eval RESULT".
+                    browser.EvaluateScriptAsync(line.Substring("eval ".Length)).ContinueWith(t =>
+                        Send("eval " + (t.Result.Success ? t.Result.Result?.ToString() ?? "null" : "failed " + t.Result.Message)));
                     break;
                 case "text":
                     foreach (char c in line.Substring("text ".Length))
@@ -205,7 +233,75 @@ namespace SEScreens.Browser
     // Shared memory layout; SEScreens.BrowserSource has the same numbers.
     internal static class FrameMap
     {
-        public const int Sequence = 0;  // int64, odd while a frame is being copied in
-        public const int Pixels = 64;   // width * height * 4 bytes, BGRA, top row first
+        public const int Sequence = 0;      // int64, odd while a frame is being copied in
+        public const int AudioWritten = 8;  // int64, samples written to the audio ring so far
+        public const int Pixels = 64;       // width * height * 4 bytes, BGRA, top row first
+        // After the pixels: a ring of AudioRingSamples int16 samples, 24 kHz mono (the game's streamed-voice format).
+        public const int AudioRate = 24000;
+        public const int AudioRingSamples = AudioRate * 2;
+
+        public static long AudioRing(int width, int height) => Pixels + (long)width * height * 4;
+    }
+
+    // The page's sound comes here instead of the PC's speakers, already in the format the game plays, and goes
+    // into the shared ring for SEScreens to play from the screen.
+    internal sealed class AudioToRing : IAudioHandler
+    {
+        private readonly MemoryMappedViewAccessor view;
+        private readonly long ring;
+        private readonly Action<string> report;
+        private int channels = 1;
+        private long written;
+
+        public AudioToRing(MemoryMappedViewAccessor view, long ring, Action<string> report)
+        {
+            this.view = view;
+            this.ring = ring;
+            this.report = report;
+        }
+
+        public bool GetAudioParameters(IWebBrowser chromiumWebBrowser, IBrowser browser, ref CefSharp.Structs.AudioParameters parameters)
+        {
+            parameters.SampleRate = FrameMap.AudioRate;
+            parameters.ChannelLayout = CefSharp.Enums.ChannelLayout.LayoutMono;
+            parameters.FramesPerBuffer = FrameMap.AudioRate / 50; // 20 ms packets
+            report("audio parameters asked");
+            return true;
+        }
+
+        public void OnAudioStreamStarted(IWebBrowser chromiumWebBrowser, IBrowser browser, CefSharp.Structs.AudioParameters parameters, int channels)
+        {
+            this.channels = Math.Max(1, channels);
+            report($"audio started {parameters.SampleRate} Hz, {channels} channels");
+        }
+
+        // data: one float* per channel, planar, -1..1. Mixed down to mono int16.
+        public unsafe void OnAudioStreamPacket(IWebBrowser chromiumWebBrowser, IBrowser browser, IntPtr data, int noOfFrames, long pts)
+        {
+            float** planes = (float**)data;
+            for (int i = 0; i < noOfFrames; i++)
+            {
+                float sum = 0;
+                for (int c = 0; c < channels; c++)
+                    sum += planes[c][i];
+                float s = Math.Clamp(sum / channels, -1f, 1f);
+                view.Write(ring + (written % FrameMap.AudioRingSamples) * 2, (short)(s * 32767));
+                written++;
+            }
+            view.Write(FrameMap.AudioWritten, written);
+        }
+
+        public void OnAudioStreamStopped(IWebBrowser chromiumWebBrowser, IBrowser browser)
+        {
+        }
+
+        public void OnAudioStreamError(IWebBrowser chromiumWebBrowser, IBrowser browser, string errorMessage)
+        {
+            report("error audio: " + errorMessage);
+        }
+
+        public void Dispose()
+        {
+        }
     }
 }

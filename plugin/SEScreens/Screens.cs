@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Sandbox.Engine.Utils;
+using Sandbox.Game.Entities;
 using Sandbox.Game.Components;
 using Sandbox.Game.Entities.Blocks;
 using Sandbox.Game.GameSystems.TextSurfaceScripts;
 using Sandbox.ModAPI;
+using VRage.Audio;
+using VRage.Data.Audio;
+using VRage.Game.Entity;
 using VRage.Game.GUI.TextPanel;
 using VRageMath;
 using VRageRender;
@@ -39,6 +43,10 @@ namespace SEScreens
         public int Captured;
         public int Uploaded;
         public string Error;
+        // Sound, when the source has any: seconds received from it, chunks handed to the game, game voice state.
+        public double AudioSeconds;
+        public int AudioChunks;
+        public string AudioState;
     }
 
     // Live content on LCDs. A screen showing a source is switched to MirrorScript (so the game draws nothing of its
@@ -55,6 +63,9 @@ namespace SEScreens
         private const int CheckScriptEveryFrames = 100;
         // The game rebinds a screen's texture on some events (recolour, model change); put ours back this often.
         private const int RebindEveryFrames = 30;
+        private const int AudioChunkBytes = 24000 * 2 / 10;
+        // Metres: how far a screen's sound carries.
+        private const float AudioRange = 40;
 
         private sealed class Feed
         {
@@ -69,6 +80,10 @@ namespace SEScreens
             public ContentType PreviousContent;
             public string PreviousScript;
             public int Uploads;
+            public MyEntity3DSoundEmitter Sound;
+            public long AudioBytes;
+            public int AudioChunks;
+            public readonly System.IO.MemoryStream PendingAudio = new System.IO.MemoryStream();
         }
 
         private static readonly Dictionary<(long, int), Feed> Feeds = new Dictionary<(long, int), Feed>();
@@ -114,6 +129,8 @@ namespace SEScreens
                     (ended ?? (ended = new List<(long, int)>())).Add(pair.Key);
                     continue;
                 }
+                if (f.Source is IAudioSource audio)
+                    PlayAudio(f, audio);
                 // Out of range, unpowered or broken screens drop the game's texture and show its offline look.
                 if (!(TextureGenerated?.GetValue(f.Panel) is bool live && live))
                 {
@@ -286,11 +303,32 @@ namespace SEScreens
             factory.RegisterFromAssembly(typeof(MirrorScript).Assembly);
         }
 
+        // A source's sound comes out of the screen's block, like a player's voice chat comes out of their character
+        // (MyEntity3DSoundEmitter.PlaySound with raw buffers): 3D, fading out by AudioRange, at the game's volume.
+        // Sent in 100 ms chunks; the voice holds at most 62 queued buffers.
+        private static void PlayAudio(Feed f, IAudioSource audio)
+        {
+            byte[] pcm = audio.TakeAudio();
+            if (pcm != null)
+            {
+                f.PendingAudio.Write(pcm, 0, pcm.Length);
+                f.AudioBytes += pcm.Length;
+            }
+            if (f.PendingAudio.Length < AudioChunkBytes)
+                return;
+            if (f.Sound == null)
+                f.Sound = new MyEntity3DSoundEmitter((MyEntity)f.Block);
+            f.Sound.PlaySound(f.PendingAudio.ToArray(), MyAudio.Static.VolumeGame, AudioRange, MySoundDimensions.D3);
+            f.AudioChunks++;
+            f.PendingAudio.SetLength(0);
+        }
+
         private static void End((long, int) key, bool restore)
         {
             var f = Feeds[key];
             Feeds.Remove(key);
             f.Source.Dispose();
+            f.Sound?.StopSound(forced: true, cleanUp: true, cleanupSound: true);
             if (!f.Block.Closed)
                 // Back on the game's own texture before ours goes. Forced: the panel's cache still thinks it's bound.
                 f.Panel.ChangeRenderTexture(f.Panel.Area, f.Panel.GetRenderTextureName(), isForced: true);
@@ -344,6 +382,12 @@ namespace SEScreens
             Captured = f.Source.Frames,
             Uploaded = f.Uploads,
             Error = f.Source.Error,
+            AudioSeconds = Math.Round(f.AudioBytes / 48000.0, 1),
+            AudioChunks = f.AudioChunks,
+            AudioState = !(f.Source is IAudioSource) ? null
+                : f.Sound == null ? "no emitter"
+                : f.Sound.Sound == null ? "no voice (game audio off?)"
+                : f.Sound.IsPlaying ? "playing" : "idle",
         };
     }
 }

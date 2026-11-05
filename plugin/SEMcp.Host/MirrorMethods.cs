@@ -156,6 +156,9 @@ namespace SEMcp.Host
             captured = m.Captured,
             uploaded = m.Uploaded,
             error = m.Error,
+            audioSeconds = m.AudioSeconds,
+            audioChunks = m.AudioChunks,
+            audioState = m.AudioState,
         };
     }
 }

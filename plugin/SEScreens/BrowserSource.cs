@@ -8,11 +8,14 @@ namespace SEScreens
 {
     // A web page, rendered by the SEScreens.Browser helper (Chromium off screen, one process per screen) into
     // shared memory. A reader thread turns new frames into texture frames at the screen's fps.
-    // Sound plays from the PC for now, not from the screen.
-    internal sealed class BrowserSource : IFrameSource
+    // Its sound comes back through the same shared memory (see TakeAudio), not out of the PC's speakers.
+    internal sealed class BrowserSource : IFrameSource, IAudioSource
     {
         // Same layout as SEScreens.Browser's FrameMap.
-        private const int SequenceOffset = 0, PixelsOffset = 64;
+        private const int SequenceOffset = 0, AudioWrittenOffset = 8, PixelsOffset = 64;
+        private const int AudioRate = 24000, AudioRingSamples = AudioRate * 2;
+        // Behind by more than this (the game paused, a hitch): skip ahead rather than play late.
+        private const int MaxAudioLagSamples = AudioRate / 2;
 
         public int Width { get; }
         public int Height { get; }
@@ -26,6 +29,8 @@ namespace SEScreens
         private readonly MemoryMappedFile map;
         private readonly MemoryMappedViewAccessor view;
         private readonly int intervalMs;
+        private readonly long audioRing;
+        private long audioRead;
         private volatile bool stop;
         private byte[] latest;
 
@@ -41,7 +46,8 @@ namespace SEScreens
             if (!File.Exists(exe))
                 throw new InvalidOperationException($"Browser helper not found: {exe}");
             string name = "SEScreens_" + Guid.NewGuid().ToString("N");
-            map = MemoryMappedFile.CreateNew(name, PixelsOffset + (long)width * height * 4);
+            audioRing = PixelsOffset + (long)width * height * 4;
+            map = MemoryMappedFile.CreateNew(name, audioRing + AudioRingSamples * 2);
             view = map.CreateViewAccessor();
 
             process = new Process
@@ -81,6 +87,27 @@ namespace SEScreens
         }
 
         public byte[] TakeLatest() => Interlocked.Exchange(ref latest, null);
+
+        public byte[] TakeAudio()
+        {
+            if (stop)
+                return null;
+            long written = view.ReadInt64(AudioWrittenOffset);
+            if (written - audioRead > MaxAudioLagSamples)
+                audioRead = written - AudioRate / 10;
+            int count = (int)(written - audioRead);
+            if (count <= 0)
+                return null;
+            var pcm = new byte[count * 2];
+            long start = audioRead % AudioRingSamples;
+            // The ring may wrap inside this read.
+            int first = (int)Math.Min(count, AudioRingSamples - start);
+            view.ReadArray(audioRing + start * 2, pcm, 0, first * 2);
+            if (first < count)
+                view.ReadArray(audioRing, pcm, first * 2, (count - first) * 2);
+            audioRead = written;
+            return pcm;
+        }
 
         public void Navigate(string url) => Send("navigate " + url);
 

@@ -21,6 +21,14 @@ namespace SEScreens
         byte[] TakeLatest();
     }
 
+    // A source with sound. Screens plays it from the screen's block, positioned in the world.
+    public interface IAudioSource
+    {
+        // Game thread. New samples since the last call as 16-bit little-endian mono at 24 kHz (the game's
+        // streamed-voice format), or null.
+        byte[] TakeAudio();
+    }
+
     // What a screen shows, for listings.
     public sealed class SourceInfo
     {
