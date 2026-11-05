@@ -47,6 +47,8 @@ namespace SEScreens
         public double AudioSeconds;
         public int AudioChunks;
         public string AudioState;
+        // Screen input: null if the source takes none, else whether it can (its screen mesh found) and is in use.
+        public string Input;
     }
 
     // Live content on LCDs. A screen showing a source is switched to MirrorScript (so the game draws nothing of its
@@ -67,8 +69,10 @@ namespace SEScreens
         // Metres: how far a screen's sound carries.
         private const float AudioRange = 40;
 
-        private sealed class Feed
+        internal sealed class Feed
         {
+            public ScreenGeometry Geometry;
+            public bool GeometryLoaded;
             public IMyTerminalBlock Block;
             public int Surface;
             public MyTextPanelComponent Panel;
@@ -122,6 +126,7 @@ namespace SEScreens
                 EnsureScriptRegistered();
             if (Feeds.Count == 0)
                 return;
+            ScreenInput.Update();
             List<(long, int)> ended = null;
             foreach (var pair in Feeds)
             {
@@ -163,6 +168,7 @@ namespace SEScreens
         // Plugin unload or hot reload: stop every feed, put screens back, and take the script out of the list.
         public static void Stop()
         {
+            ScreenInput.Stop();
             foreach (var key in Feeds.Keys.ToList())
                 End(key, restore: true);
             var factory = MyTextSurfaceScriptFactory.Instance;
@@ -296,6 +302,34 @@ namespace SEScreens
             return count;
         }
 
+        // Screens whose source takes input and that are showing it now (powered, in range).
+        internal static IEnumerable<Feed> UsableFeeds()
+        {
+            foreach (var f in Feeds.Values)
+                if (IsUsable(f))
+                    yield return f;
+        }
+
+        internal static bool IsUsable(Feed f) =>
+            f != null && Feeds.TryGetValue((f.Block.EntityId, f.Surface), out var current) && current == f
+            && f.Source is IInputSink && !f.Source.Ended && !f.Block.Closed && f.Bound;
+
+        internal static bool AnyUsableWithin(Vector3D position, double metres) =>
+            UsableFeeds().Any(f => Vector3D.Distance(f.Block.WorldMatrix.Translation, position) <= metres);
+
+        // The screen's surface, loaded the first time it's needed; null if the model has none we can read.
+        internal static ScreenGeometry Geometry(Feed f)
+        {
+            if (!f.GeometryLoaded)
+            {
+                f.Geometry = ScreenGeometry.Load(f.Block, f.Panel);
+                f.GeometryLoaded = true;
+                if (f.Geometry == null)
+                    log($"'{f.Block.CustomName}' screen {f.Surface}: no screen mesh found, so it can't take the mouse");
+            }
+            return f.Geometry;
+        }
+
         // The factory reloads its list with every session and only scans the game's and Pulsar's assemblies, not
         // a hot-reloaded copy, so add ours back whenever it's missing.
         private static void EnsureScriptRegistered()
@@ -403,6 +437,9 @@ namespace SEScreens
             Error = f.Source.Error,
             AudioSeconds = Math.Round(f.AudioBytes / 48000.0, 1),
             AudioChunks = f.AudioChunks,
+            Input = !(f.Source is IInputSink) ? null
+                : ScreenInput.Focused == f ? "in use"
+                : Geometry(f) == null ? "no screen mesh" : "ready",
             AudioState = !(f.Source is IAudioSource) ? null
                 : f.Sound == null ? "no emitter"
                 : f.Sound.Sound == null ? "no voice (game audio off?)"

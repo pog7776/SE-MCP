@@ -87,7 +87,8 @@ namespace SEScreens
             }
         }
 
-        private static string Material(MyTextPanelComponent panel)
+        // The screen area's material name: its mesh in the block's model.
+        public static string Material(MyTextPanelComponent panel)
         {
             if (!(PanelRender?.GetValue(panel) is object render) || !(ScreenAreas?.GetValue(render) is IList areas))
                 return null;

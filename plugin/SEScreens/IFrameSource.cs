@@ -29,6 +29,34 @@ namespace SEScreens
         byte[] TakeAudio();
     }
 
+    [Flags]
+    public enum InputModifiers
+    {
+        None = 0,
+        Shift = 1,
+        Control = 2,
+        Alt = 4,
+        LeftButton = 8,
+        MiddleButton = 16,
+        RightButton = 32,
+    }
+
+    public enum MouseButton { Left, Middle, Right }
+
+    // A source you can use: ScreenInput sends it the player's mouse and keyboard while they're in screen input
+    // mode. Positions are pixels of the source's frame (0..Width-1, 0..Height-1). Keys are Windows virtual-key
+    // codes (Shift, Control and Alt as the generic 16/17/18); Char is typed text, after the keyboard layout.
+    // Game thread; implementations hand off rather than block.
+    public interface IInputSink
+    {
+        void Focus(bool focused);
+        void MouseMove(int x, int y, InputModifiers modifiers);
+        void MouseButton(int x, int y, MouseButton button, bool down, int clicks, InputModifiers modifiers);
+        void MouseWheel(int x, int y, int delta, InputModifiers modifiers);
+        void Key(int virtualKey, bool down, bool repeat, InputModifiers modifiers);
+        void Char(char c, InputModifiers modifiers);
+    }
+
     // What a screen shows, for listings.
     public sealed class SourceInfo
     {

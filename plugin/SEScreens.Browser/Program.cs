@@ -124,15 +124,31 @@ namespace SEScreens.Browser
                 case "navigate":
                     browser.LoadUrl(line.Substring("navigate ".Length).Trim());
                     break;
-                case "move":
-                    host?.SendMouseMoveEvent(Mouse(parts), false);
+                // Mouse positions are page pixels; FLAGS are cef_event_flags_t (held modifiers and buttons).
+                case "move": // move X Y [FLAGS]
+                    host?.SendMouseMoveEvent(Mouse(parts, 3), false);
                     break;
-                case "down":
+                case "down": // down|up X Y [left|right|middle] [CLICKS] [FLAGS]
                 case "up":
-                    host?.SendMouseClickEvent(Mouse(parts), Button(parts), parts[0] == "up", 1);
+                    host?.SendMouseClickEvent(Mouse(parts, 5), Button(parts), parts[0] == "up", Math.Max(1, Int(parts, 4, 1)));
                     break;
-                case "wheel":
-                    host?.SendMouseWheelEvent(Mouse(parts), 0, int.Parse(parts[3], CultureInfo.InvariantCulture));
+                case "wheel": // wheel X Y DY [FLAGS]
+                    host?.SendMouseWheelEvent(Mouse(parts, 4), 0, Int(parts, 3, 0));
+                    break;
+                case "key": // key down|up VK [FLAGS]: VK a Windows virtual-key code
+                    host?.SendKeyEvent(Key(parts[1] == "down", Int(parts, 2, 0), (CefEventFlags)Int(parts, 3, 0)));
+                    break;
+                case "char": // char CODE [FLAGS]: one typed UTF-16 unit
+                    host?.SendKeyEvent(new KeyEvent
+                    {
+                        Type = KeyEventType.Char,
+                        WindowsKeyCode = Int(parts, 1, 0),
+                        Modifiers = (CefEventFlags)Int(parts, 2, 0),
+                        IsSystemKey = ((CefEventFlags)Int(parts, 2, 0) & CefEventFlags.AltDown) != 0,
+                    });
+                    break;
+                case "focus": // focus on|off: caret and keyboard focus, as when the window is focused
+                    host?.SetFocus(parts.Length > 1 && parts[1] == "on");
                     break;
                 case "audio":
                     Send($"audio muted={host?.IsAudioMuted}");
@@ -153,8 +169,38 @@ namespace SEScreens.Browser
             return true;
         }
 
-        private static MouseEvent Mouse(string[] parts) =>
-            new MouseEvent(int.Parse(parts[1], CultureInfo.InvariantCulture), int.Parse(parts[2], CultureInfo.InvariantCulture), CefEventFlags.None);
+        private static MouseEvent Mouse(string[] parts, int flagsAt) =>
+            new MouseEvent(Int(parts, 1, 0), Int(parts, 2, 0), (CefEventFlags)Int(parts, flagsAt, 0));
+
+        private static int Int(string[] parts, int index, int fallback) =>
+            parts.Length > index && int.TryParse(parts[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : fallback;
+
+        // A key as Windows would send it: Chromium reads the scan code (DOM event.code) from NativeKeyCode,
+        // which carries WM_KEYDOWN's lParam.
+        private static KeyEvent Key(bool down, int vk, CefEventFlags flags)
+        {
+            int scan = (int)MapVirtualKey((uint)vk, 0 /* MAPVK_VK_TO_VSC */);
+            int lParam = 1 | (scan << 16) | (IsExtended(vk) ? 1 << 24 : 0);
+            if (!down)
+                lParam |= (1 << 30) | (1 << 31);
+            bool alt = (flags & CefEventFlags.AltDown) != 0;
+            return new KeyEvent
+            {
+                Type = down ? KeyEventType.RawKeyDown : KeyEventType.KeyUp,
+                WindowsKeyCode = vk,
+                NativeKeyCode = lParam,
+                Modifiers = flags,
+                IsSystemKey = alt,
+            };
+        }
+
+        // Keys Windows flags as extended: arrows, the editing block, Right Ctrl/Alt, numpad divide, the Windows keys.
+        private static bool IsExtended(int vk) =>
+            (vk >= 0x21 && vk <= 0x28) || vk == 0x2D || vk == 0x2E || vk == 0x6F || vk == 0x5B || vk == 0x5C || vk == 0x5D
+            || vk == 0xA3 || vk == 0xA5;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint MapVirtualKey(uint code, uint mapType);
 
         private static MouseButtonType Button(string[] parts) =>
             parts.Length > 3 && parts[3] == "right" ? MouseButtonType.Right

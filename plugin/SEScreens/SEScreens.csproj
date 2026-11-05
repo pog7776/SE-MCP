@@ -9,5 +9,8 @@
   <!-- Live content on LCDs. Standalone: no SEMcp references; SEMcp's host is the one that knows about this. -->
   <ItemGroup>
     <Reference Include="VRage.Render" HintPath="$(SEBin)\VRage.Render.dll" Private="false" />
+    <!-- Screen input mode: a GUI screen of our own, and the full keyboard and mouse state. -->
+    <Reference Include="Sandbox.Graphics" HintPath="$(SEBin)\Sandbox.Graphics.dll" Private="false" />
+    <Reference Include="VRage.Input" HintPath="$(SEBin)\VRage.Input.dll" Private="false" />
   </ItemGroup>
 </Project>

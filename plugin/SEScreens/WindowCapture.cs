@@ -10,7 +10,7 @@ namespace SEScreens
     // Copies one desktop window into RGBA frames sized for an LCD texture, on its own thread.
     // GDI for now: PrintWindow with PW_RENDERFULLCONTENT also gets most GPU-drawn windows (browsers, Electron),
     // and works while the window is covered. Windows.Graphics.Capture in a helper process is the faster upgrade.
-    internal sealed class WindowCapture : IFrameSource
+    internal sealed partial class WindowCapture : IFrameSource, IInputSink
     {
         private const uint PwClientOnly = 1, PwRenderFullContent = 2;
         private const int Halftone = 4, SrcCopy = 0x00CC0020;
@@ -85,6 +85,8 @@ namespace SEScreens
                             }
                             srcW = client.Right;
                             srcH = client.Bottom;
+                            clientWidth = srcW;
+                            clientHeight = srcH;
                             srcBitmap = CreateCompatibleBitmap(screen, srcW, srcH);
                             oldSrc = SelectObject(srcDc, srcBitmap);
                         }
@@ -156,6 +158,7 @@ namespace SEScreens
                         frame[i + 3] = 0;
                     }
                 }
+                DrawMarker(frame);
                 Interlocked.Exchange(ref latest, frame);
                 Frames++;
                 tick++;

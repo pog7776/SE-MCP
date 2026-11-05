@@ -159,6 +159,7 @@ namespace SEMcp.Host
             audioSeconds = m.AudioSeconds,
             audioChunks = m.AudioChunks,
             audioState = m.AudioState,
+            input = m.Input,
         };
     }
 }

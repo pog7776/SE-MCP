@@ -9,7 +9,7 @@ namespace SEScreens
     // A web page, rendered by the SEScreens.Browser helper (Chromium off screen, one process per screen) into
     // shared memory. A reader thread turns new frames into texture frames at the screen's fps.
     // Its sound comes back through the same shared memory (see TakeAudio), not out of the PC's speakers.
-    internal sealed class BrowserSource : IFrameSource, IAudioSource
+    internal sealed class BrowserSource : IFrameSource, IAudioSource, IInputSink
     {
         // Same layout as SEScreens.Browser's FrameMap.
         private const int SequenceOffset = 0, AudioWrittenOffset = 8, PixelsOffset = 64;
@@ -110,6 +110,22 @@ namespace SEScreens
         }
 
         public void Navigate(string url) => Send("navigate " + url);
+
+        // Input from ScreenInput, as helper commands. Modifiers go as CEF's event flags.
+        public void Focus(bool focused) => Send(focused ? "focus on" : "focus off");
+        public void MouseMove(int x, int y, InputModifiers m) => Send($"move {x} {y} {Flags(m)}");
+        public void MouseButton(int x, int y, MouseButton button, bool down, int clicks, InputModifiers m) =>
+            Send($"{(down ? "down" : "up")} {x} {y} {button.ToString().ToLowerInvariant()} {clicks} {Flags(m)}");
+        public void MouseWheel(int x, int y, int delta, InputModifiers m) => Send($"wheel {x} {y} {delta} {Flags(m)}");
+        public void Key(int virtualKey, bool down, bool repeat, InputModifiers m) =>
+            Send($"key {(down ? "down" : "up")} {virtualKey} {Flags(m)}");
+        public void Char(char c, InputModifiers m) => Send($"char {(int)c} {Flags(m)}");
+
+        // cef_event_flags_t: Shift 2, Control 4, Alt 8, left 16, middle 32, right 64.
+        private static int Flags(InputModifiers m) =>
+            ((m & InputModifiers.Shift) != 0 ? 2 : 0) | ((m & InputModifiers.Control) != 0 ? 4 : 0) | ((m & InputModifiers.Alt) != 0 ? 8 : 0)
+            | ((m & InputModifiers.LeftButton) != 0 ? 16 : 0) | ((m & InputModifiers.MiddleButton) != 0 ? 32 : 0)
+            | ((m & InputModifiers.RightButton) != 0 ? 64 : 0);
 
         // Raw helper commands (move/down/up/wheel/text); see SEScreens.Browser.Program.
         public void Send(string command)
