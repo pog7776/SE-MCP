@@ -123,6 +123,17 @@ async def plan_route(start: Vec, end: Vec, blocked: Blocked, max_checks: int = 1
     return route, first, checks
 
 
+def thin(points: list[Vec], start: Vec, spacing: float) -> list[Vec]:
+    """Drops points closer than `spacing` to the last one kept (or to the start)."""
+    kept: list[Vec] = []
+    here = start
+    for p in points:
+        if norm(sub(p, here)) >= spacing:
+            kept.append(p)
+            here = p
+    return kept
+
+
 def obstacle_name(hit: dict[str, Any]) -> str:
     if hit.get("voxel"):
         return "an asteroid"

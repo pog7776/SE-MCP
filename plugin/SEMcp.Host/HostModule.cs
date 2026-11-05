@@ -58,6 +58,7 @@ namespace SEMcp.Host
             HostMethods.Register(dispatcher);
             ToolbarMethods.Register(dispatcher);
             OverlayMethods.Register(dispatcher);
+            PathMethods.Register(dispatcher);
             StartCapture();
 
             events = new EventHub();

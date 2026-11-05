@@ -75,8 +75,9 @@ def test_obstacle_names():
     assert guide.obstacle_name({"entity": "Rock", "voxel": True}) == "an asteroid"
 
 
-def handlers(calls: list, los, controlling: bool = False) -> dict[str, Any]:
+def handlers(calls: list, los, controlling: bool = False, path=None) -> dict[str, Any]:
     h = default_handlers(controlling=controlling)
+    h["path.find"] = path or (lambda p: {"state": "PathNotFound", "found": False, "retry": False, "points": [], "length": 0})
     drawn: dict[str, Any] = {}
 
     def set_(p):
@@ -96,8 +97,8 @@ def handlers(calls: list, los, controlling: bool = False) -> dict[str, Any]:
 
 
 async def call(tool: str, args: dict[str, Any], calls: list, los=lambda p: {"clear": True, "distance": 1},
-               controlling: bool = False) -> str:
-    async with FakeGame(handlers(calls, los, controlling)) as game:
+               controlling: bool = False, path=None) -> str:
+    async with FakeGame(handlers(calls, los, controlling, path)) as game:
         bridge = Bridge(port=game.port, token=TOKEN)
         try:
             result = await create_server(bridge).call_tool(tool, args)
@@ -184,6 +185,60 @@ async def test_note_rides_along_to_the_arrived_event():
     message = event_message({"type": "arrived", "text": "The player reached Ice Field.", "context": {},
                              "data": {"name": "Ice Field", "note": "open the hangar door"}})
     assert "Note from when you set the guide: open the hangar door" in message and "watch" not in message
+
+
+def ship_in_the_way(p):
+    """A ship 'Hauler' (id 4004) blocks any line that crosses z = 250 near x = 1; lines out past x = 40 are clear."""
+    a, b = p["from"], p["to"]
+    if (a[2] - 250) * (b[2] - 250) < 0 and max(abs(a[0]), abs(b[0])) < 40:
+        return {"clear": False, "distance": 1, "hit": {"entity": "Hauler", "entityId": "4004", "position": [1, 2, 250]}}
+    return {"clear": True, "distance": 1}
+
+
+async def test_a_ship_in_the_way_is_routed_round_by_the_game_pathfinder():
+    calls: list = []
+    asked: list = []
+    tries = iter([True, False])  # the first answer: still building its map of the ship
+
+    def path(p):
+        asked.append(p)
+        if next(tries):
+            return {"state": "OctreeGenerating", "found": False, "retry": True, "points": [], "length": 0}
+        return {"state": "PathFound", "found": True, "retry": False, "length": 300,
+                "points": [[1, 2, 4], [50, 2, 200], [50.5, 2, 201], [50, 2, 300]]}
+
+    text = await call("guide_to", {"to": "Ice Field"}, calls, ship_in_the_way, path=path)
+    assert asked[0]["gridId"] == "4004" and asked[0]["radius"] == 1 and len(asked) == 2
+    # Thinned (the first point is at the start, two are 1 m apart), then the target.
+    assert calls[0]["elements"][0]["route"] == [[50, 2, 200], [50, 2, 300], [1, 2, 503]]
+    assert "around Hauler (the game's own pathfinder)" in text
+
+
+async def test_falls_back_to_detours_when_the_game_has_no_path():
+    calls: list = []
+    text = await call("guide_to", {"to": "Ice Field"}, calls, ship_in_the_way)
+    assert len(calls[0]["elements"][0]["route"]) >= 2
+    assert "around Hauler" in text and "pathfinder" not in text
+
+
+async def test_a_seat_on_a_station_is_not_piloting():
+    calls: list = []
+    rays: list = []
+
+    def los(p):
+        rays.append(p)
+        return {"clear": True, "distance": 1}
+
+    async with FakeGame(handlers(calls, los, controlling=True)) as game:
+        game.handlers["grid.motion"] = lambda p: {"center": [1, 2, 203], "radius": 112, "isStatic": True}
+        bridge = Bridge(port=game.port, token=TOKEN)
+        try:
+            result = await create_server(bridge).call_tool("guide_to", {"to": "Ice Field"})
+            text = "\n".join(c.text for c in result.content)
+        finally:
+            await bridge.close()
+    assert len(rays) == 1 and "ignoreId" not in rays[0]
+    assert "Routed for" not in text
 
 
 async def test_already_there():

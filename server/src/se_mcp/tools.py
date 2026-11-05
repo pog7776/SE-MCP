@@ -540,6 +540,18 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         return {"name": f"{info['block']['name']} on {info['gridName']}", "point": info["position"],
                 "gridId": info["block"]["gridId"], "blockId": found["id"]}
 
+    async def _game_path(grid_id: str, start: list[float], end: list[float], radius: float) -> list[list[float]] | None:
+        """A flying route around a grid from the game's AI-block pathfinder, thinned to points 3 m+ apart, or None.
+        Its map of the grid builds in the background on first use, so it's asked again for a few seconds."""
+        for _ in range(12):
+            r = await bridge.call("path.find", {"gridId": grid_id, "from": start, "to": end, "radius": radius})
+            if not r.get("retry"):
+                break
+            await asyncio.sleep(0.5)
+        if not r.get("found") or not r.get("points"):
+            return None
+        return guide_mod.thin([guide_mod.as_vec(p) for p in r["points"]], start, 3.0)
+
     @tool
     async def guide_to(to: str, grid: str | None = None, arrive_m: float = 3, avoid: bool = True,
                        note: str | None = None) -> str:
@@ -564,8 +576,12 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         own_grid = own.get("gridId")
         radius = 0.0
         if own_grid:
-            radius = float((await bridge.call("grid.motion", {"gridId": own_grid})).get("radius") or 0)
-            if own_grid == target_grid:
+            motion = await bridge.call("grid.motion", {"gridId": own_grid})
+            if motion.get("isStatic"):
+                own_grid = None  # a seat on a station: they'll get up and go on foot
+            else:
+                radius = float(motion.get("radius") or 0)
+            if own_grid and own_grid == target_grid:
                 return f"You're aboard {target['name'].split(' on ')[-1]} already; get out of the seat to be guided round it."
         los: dict[str, Any] = {"ignoreId": own_grid} if own_grid else {}
 
@@ -592,8 +608,30 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
                     return hit
             return None
 
-        route, obstacle, checks = await guide_mod.plan_route(start, end, blocked, depth=2 if avoid else 0,
-                                                             clearance=radius, max_checks=40 if radius >= 3 else 120)
+        route: list[list[float]] | None = None
+        obstacle: dict[str, Any] | None = None
+        checks, by_game = 0, False
+        if avoid:
+            # A ship or station in the way: the game's own (AI block) pathfinder knows its shape.
+            obstacle = await blocked(start, end)
+            checks = 1
+            if obstacle is None:
+                route = [end]
+            elif obstacle.get("entityId") and not obstacle.get("voxel"):
+                points = await _game_path(obstacle["entityId"], start, end, max(1.0, radius))
+                if points:
+                    last = points[-1]
+                    if await blocked(last, end) is None:
+                        route, by_game = points + [end], True
+                    else:
+                        rest, _, used = await guide_mod.plan_route(last, end, blocked, clearance=radius, max_checks=40)
+                        checks += used
+                        if rest is not None:
+                            route, by_game = points + rest, True
+        if route is None:
+            route, first, used = await guide_mod.plan_route(start, end, blocked, depth=2 if avoid else 0,
+                                                            clearance=radius, max_checks=40 if radius >= 3 else 120)
+            obstacle, checks = obstacle or first, checks + used
         warning = ""
         if route is None:
             route = [end]
@@ -621,7 +659,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         if len(route) == 1:
             how = "in a straight line"
         else:
-            how = f"via {len(route) - 1} waypoint(s) around {guide_mod.obstacle_name(obstacle)}"
+            how = (f"via {len(route) - 1} waypoint(s) around {guide_mod.obstacle_name(obstacle)}"
+                   + (" (the game's own pathfinder)" if by_game else ""))
         ship = f" Routed for {own.get('gridName') or 'your ship'} ({radius:.0f} m radius), looking through it." if radius >= 3 else ""
         return (f"Guiding you to {target['name']}: {guide_mod.distance_text(length)} {how}. The HUD marker moves on "
                 f"as you reach each point and clears within {arrive_m:g} m of the end." + ship + warning
