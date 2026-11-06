@@ -44,6 +44,22 @@ namespace SEMcp.Host
             log($"SEScreens {screens.GetName().Version} {(OwnedByHost ? "loaded by the host" : "running as a plugin")}");
         }
 
+        // Cursor mode off screens: the block menu on right-click, using things on left-click. A plugin copy of SEScreens too old to have the hook just
+        // goes without it.
+        public static void StartBlockMenu(Action<string> log)
+        {
+            if (!Available)
+                return;
+            try
+            {
+                AddBlockMenu();
+            }
+            catch (Exception e)
+            {
+                log($"Block menu unavailable: {e.Message}");
+            }
+        }
+
         // Lifecycle, only when the host owns SEScreens. Separate non-inlined methods so the host's own code never
         // compiles against SEScreens types when it isn't there.
         public static void Start(Action<string> log)
@@ -60,6 +76,17 @@ namespace SEMcp.Host
 
         public static void Close()
         {
+            if (Available)
+            {
+                try
+                {
+                    RemoveBlockMenu();
+                }
+                catch (Exception)
+                {
+                    // Never started (old plugin copy).
+                }
+            }
             if (OwnedByHost)
                 StopScreens();
             AppDomain.CurrentDomain.AssemblyResolve -= Resolve;
@@ -75,6 +102,20 @@ namespace SEMcp.Host
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void StopScreens() => SEScreens.Screens.Stop();
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void AddBlockMenu()
+        {
+            BlockMenu.Start();
+            CursorUse.Start();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void RemoveBlockMenu()
+        {
+            CursorUse.Stop();
+            BlockMenu.Stop();
+        }
 
         // Pulsar's copy: its ScreensPlugin has been initialised. Copies earlier host generations loaded never are.
         private static bool IsRunningPlugin(Assembly assembly)

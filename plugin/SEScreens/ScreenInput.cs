@@ -4,6 +4,7 @@ using System.Diagnostics;
 using Sandbox.Game.Gui;
 using Sandbox.Game.Screens;
 using Sandbox.Game.World;
+using Sandbox.Graphics;
 using Sandbox.Graphics.GUI;
 using Sandbox.ModAPI;
 using VRage.Input;
@@ -20,8 +21,8 @@ namespace SEScreens
     // focus, the way chat or the terminal does: the game stops reading the controls, the camera holds still and the
     // mouse cursor shows. The cursor's line from the camera finds the screen under it, which gets the mouse; clicking
     // a screen gives it the keyboard (the screen at the crosshair has it to start with). Clicking off every screen
-    // takes the keyboard back; Escape with no screen focused, another Alt tap or the Menu key leave. Alt held with
-    // another key is still Alt to the source.
+    // takes the keyboard back and is offered to CursorMode's click handlers (a block menu, say); Escape with no screen
+    // focused, another Alt tap or the Menu key leave. Alt held with another key is still Alt to the source.
     internal static class ScreenInput
     {
         // Tapped, or pressed: the Menu (Application) key isn't a modifier, so it toggles straight away.
@@ -65,6 +66,7 @@ namespace SEScreens
             capture?.Release();
             capture?.CloseScreenNow();
             capture = null;
+            CursorMode.Clear();
         }
 
         // Leaves cursor mode, as the leave keys do (for CursorMode.Leave).
@@ -254,7 +256,7 @@ namespace SEScreens
                 {
                     hoverPixel = new Vector2I(-1, -1);
                 }
-                if (Mouse(input, mods, pixel))
+                if (Mouse(input, mods, pixel, line))
                     return;
                 int wheel = input.DeltaMouseScrollWheelValue();
                 if (wheel != 0 && hover != null)
@@ -273,8 +275,8 @@ namespace SEScreens
                 MyGuiSandbox.AddScreen(dialog);
             }
 
-            // True if a click off every screen left input mode.
-            private bool Mouse(IMyInput input, InputModifiers mods, Vector2I pixel)
+            // True if a click off every screen left input mode or opened something on top.
+            private bool Mouse(IMyInput input, InputModifiers mods, Vector2I pixel, LineD line)
             {
                 for (int b = 0; b < Buttons.Length; b++)
                 {
@@ -282,10 +284,22 @@ namespace SEScreens
                     {
                         if (hover == null)
                         {
-                            // Off every screen: the keyboard goes back to nobody; cursor mode stays.
+                            // Off every screen: the keyboard goes back to nobody; cursor mode stays. Then it's anyone's.
                             ReleaseKeys();
                             Sink(focus)?.Focus(false);
                             focus = null;
+                            var size = input.GetMouseAreaSize();
+                            var full = MyGuiManager.GetFullscreenRectangle();
+                            var mouse = input.GetMousePosition();
+                            var click = new CursorClick
+                            {
+                                Line = line,
+                                Button = (MouseButton)b,
+                                Modifiers = mods,
+                                Cursor = new Vector2(mouse.X * full.Width / size.X, mouse.Y * full.Height / size.Y),
+                            };
+                            if (CursorMode.OffScreenClick(click))
+                                return true;
                             continue;
                         }
                         if (hover != focus)

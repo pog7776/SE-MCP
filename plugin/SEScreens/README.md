@@ -27,6 +27,8 @@ Cursor mode is how you use a screen with the real mouse and keyboard.
 - The camera holds still and the cursor shows. A screen under the cursor gets the mouse, up to 8 m away.
 - The screen at your crosshair has the keyboard to start with. Click a screen to give it the keyboard; click
   off every screen to take the keyboard back.
+- With SEMcp installed too, right-click a block to open a menu of its terminal settings beside it (Esc closes it),
+  and left-click a button, door or seat to use it as F would.
 - **Leave:** tap Alt again, press Menu, or press Esc when no screen has the keyboard. While a screen has the
   keyboard, Esc goes to the page.
 

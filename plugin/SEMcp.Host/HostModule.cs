@@ -34,6 +34,7 @@ namespace SEMcp.Host
             config = Config.LoadOrCreate();
             ScreensLink.Open(Log);
             ScreensLink.Start(Log);
+            ScreensLink.StartBlockMenu(Log);
             queue = new GameThreadQueue();
             dispatcher = new Dispatcher(new CoreContext
             {

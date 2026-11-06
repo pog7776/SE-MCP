@@ -16,6 +16,8 @@
   <!-- Offscreen camera rendering (host-only): renderer types, and Harmony as loaded by Pulsar. -->
   <ItemGroup>
     <Reference Include="VRage.Render" HintPath="$(SEBin)\VRage.Render.dll" Private="false" />
+    <!-- Keys and mouse for cursor mode's block menu. -->
+    <Reference Include="VRage.Input" HintPath="$(SEBin)\VRage.Input.dll" Private="false" />
     <Reference Include="SharpDX" HintPath="$(SEBin)\SharpDX.dll" Private="false" />
     <Reference Include="SharpDX.DXGI" HintPath="$(SEBin)\SharpDX.DXGI.dll" Private="false" />
     <!-- The Legacy build compiles for both targets (there's no .NET 10 SDK here); at runtime the name binds to Pulsar's loaded copy. -->
