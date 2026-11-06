@@ -45,6 +45,8 @@ namespace SEScreens.Browser
 
             var settings = new CefSettings
             {
+                // Both: Chromium's one-process-per-folder lock is on the root cache path.
+                RootCachePath = cache,
                 CachePath = cache,
                 LogSeverity = LogSeverity.Warning,
                 LogFile = Path.Combine(cache, "cef.log"),
@@ -54,7 +56,7 @@ namespace SEScreens.Browser
             settings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
             // CefSharp.OffScreen's defaults include --mute-audio, which silences everything, the audio handler included.
             settings.CefCommandLineArgs.Remove("mute-audio");
-            if (!Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null))
+            if (!Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: new NoRelaunchWindows()))
             {
                 Send("error CEF failed to start");
                 return 1;
@@ -358,5 +360,12 @@ namespace SEScreens.Browser
         public void Dispose()
         {
         }
+    }
+
+    // A second launch on the same cache folder hands its command line to this process. Chromium's default is to
+    // open a desktop window with each argument as a tab; there's never a window to show, so drop it.
+    internal sealed class NoRelaunchWindows : CefSharp.Handler.BrowserProcessHandler
+    {
+        protected override bool OnAlreadyRunningAppRelaunch(System.Collections.Generic.IReadOnlyDictionary<string, string> commandLine, string currentDirectory) => true;
     }
 }

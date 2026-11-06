@@ -36,7 +36,9 @@ namespace SEScreens
         private volatile bool stop;
         private byte[] latest;
 
-        public BrowserSource(SourceInfo info, string url, int width, int height, int fps)
+        // profile: one per screen (block-surface). Chromium allows one process per cache folder; a second one hands its
+        // command line to the first and exits, so screens can't share. Cookies and logins are per screen.
+        public BrowserSource(SourceInfo info, string url, int width, int height, int fps, string profile)
         {
             this.info = info;
             Width = width;
@@ -56,7 +58,7 @@ namespace SEScreens
             process = new Process
             {
                 StartInfo = new ProcessStartInfo(exe,
-                    $"--map {name} --width {width} --height {height} --fps {fps} --parent {Process.GetCurrentProcess().Id} --url \"{url}\"")
+                    $"--map {name} --width {width} --height {height} --fps {fps} --parent {Process.GetCurrentProcess().Id} --cache \"{CacheFolder(profile)}\" --url \"{url}\"")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -88,6 +90,10 @@ namespace SEScreens
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             return Path.Combine(appData, "SpaceEngineers", "SEScreens", "browser", "SEScreens.Browser.exe");
         }
+
+        // %LocalAppData%\SEScreens\cef-cache\<profile>
+        private static string CacheFolder(string profile) => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SEScreens", "cef-cache", profile);
 
         public byte[] TakeLatest() => Interlocked.Exchange(ref latest, null);
 

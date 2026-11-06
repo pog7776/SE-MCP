@@ -169,7 +169,7 @@ namespace SEScreens
                     }
                     home = BrowserSource.NormaliseUrl(home);
                     var info = new SourceInfo { Kind = "browser", Title = "Web Browser", Detail = home };
-                    Show(terminal, index, info, (w, h) => new BrowserSource(info, home, w, h, 30), 30, DefaultResolution, script);
+                    Show(terminal, index, info, (w, h) => new BrowserSource(info, home, w, h, 30, $"{block.EntityId}-{index}"), 30, DefaultResolution, script);
                     Feeds[key].Home = home;
                 }
             }
@@ -312,7 +312,7 @@ namespace SEScreens
             }
             fps = MathHelper.Clamp(fps, 1, 60);
             var info = new SourceInfo { Kind = "browser", Title = "Browser", Detail = url };
-            return Show(block, surface, info, (w, h) => new BrowserSource(info, url, w, h, fps), fps, resolution);
+            return Show(block, surface, info, (w, h) => new BrowserSource(info, url, w, h, fps, $"{block.EntityId}-{surface}"), fps, resolution);
         }
 
         // Sends a raw command to the browser on that screen (see SEScreens.Browser: move/down/up/wheel X Y,
