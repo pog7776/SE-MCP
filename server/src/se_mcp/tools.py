@@ -988,6 +988,7 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         what = f"web page {m['process']}" if m.get("kind") == "browser" else f"{m['window']!r} ({m['process']})"
         line = (f"{m['block']} #{m['surface']}: {what} at {m['fps']} fps, "
                 f"{m['resolution'][0]}x{m['resolution'][1]}, {m['uploaded']} frames shown")
+        line += f", sound {m['hearing']}" if m.get("hearing") else ""
         return line + (f", capture error: {m['error']}" if m.get("error") else "")
 
     @tool
@@ -1022,7 +1023,8 @@ def create_server(bridge: Bridge | None = None) -> MCPServer:
         screen already shows a page, it goes to the new url instead.
 
         url: "youtube.com/watch?v=..." works (https is assumed). fps: 1-60. resolution: the long side in pixels
-        (64-2048). Only this PC sees it; sound plays from the PC's speakers for now. Stop with stop_mirror."""
+        (64-2048). Only this PC sees it. Its sound comes from the screen in game, and with Realistic sound it
+        needs air between the screen and the player (walls and helmets muffle it). Stop with stop_mirror."""
         target = await resolve.block(bridge, block, grid)
         params: dict[str, Any] = {"blockId": target["id"], "surface": await _surface_index(target["id"], surface),
                                   "url": url, "fps": fps, "resolution": resolution}

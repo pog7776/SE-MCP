@@ -58,9 +58,11 @@ namespace SEScreens
         }
 
         // The screen's centre in the block's model space, from the triangles of that screen's material; null if the
-        // model isn't loaded or has no such mesh (then the sound comes from the block's centre).
-        public static Vector3? LocalCentre(IMyTerminalBlock block, MyTextPanelComponent panel)
+        // model isn't loaded or has no such mesh (then the sound comes from the block's centre). front is the
+        // screen's facing (away from the block's centre), or zero.
+        public static Vector3? LocalCentre(IMyTerminalBlock block, MyTextPanelComponent panel, out Vector3 front)
         {
+            front = Vector3.Zero;
             try
             {
                 var model = (block as MyCubeBlock)?.Model;
@@ -75,10 +77,16 @@ namespace SEScreens
                 for (int t = mesh.TriStart; t < mesh.TriStart + mesh.TriCount; t++)
                 {
                     var tri = model.GetTriangle(t);
-                    sum += model.GetVertex(tri.I0) + model.GetVertex(tri.I1) + model.GetVertex(tri.I2);
+                    Vector3 a = model.GetVertex(tri.I0), b = model.GetVertex(tri.I1), c = model.GetVertex(tri.I2);
+                    sum += a + b + c;
                     count += 3;
+                    front += Vector3.Cross(b - a, c - a);
                 }
-                return sum / count;
+                Vector3 centre = sum / count;
+                // Triangle winding varies between models; the screen faces away from the block.
+                if (front.LengthSquared() > 0)
+                    front = Vector3.Normalize(Vector3.Dot(front, centre) < 0 ? -front : front);
+                return centre;
             }
             catch (Exception)
             {

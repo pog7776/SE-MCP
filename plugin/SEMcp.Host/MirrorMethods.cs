@@ -159,6 +159,7 @@ namespace SEMcp.Host
             audioSeconds = m.AudioSeconds,
             audioChunks = m.AudioChunks,
             audioState = m.AudioState,
+            hearing = m.Hearing,
             input = m.Input,
             brightness = m.Brightness,
             volume = m.Volume,

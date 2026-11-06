@@ -102,6 +102,17 @@ async def test_list_mirrors():
     assert text.startswith("- Control Seat #1: 'Spotify Premium' (Spotify) at 15 fps, 512x512, 38 frames shown")
 
 
+async def test_show_webpage_reports_what_the_player_hears():
+    async with FakeGame({**handlers([]), "browser.open": lambda p: mirror(kind="browser", process="https://x.com",
+                                                                            hearing="through a wall")}) as game:
+        bridge = Bridge(port=game.port, token=TOKEN)
+        try:
+            result = await create_server(bridge).call_tool("show_webpage", {"block": "Control Seat", "url": "x.com"})
+        finally:
+            await bridge.close()
+    assert "38 frames shown, sound through a wall" in result.content[0].text
+
+
 async def test_list_mirrors_reports_game_frame_rate():
     text = await call("list_mirrors", {}, [])
     assert text.endswith("Game: 60 fps, 16.7 ms/frame.")

@@ -47,6 +47,8 @@ namespace SEScreens
         public double AudioSeconds;
         public int AudioChunks;
         public string AudioState;
+        // What gets through to the player with Realistic sound: clear, through the helmet, a wall, the hull, or silent.
+        public string Hearing;
         // Screen input: null if the source takes none, else whether it can (its screen mesh found) and is in use.
         public string Input;
         // Percents (100 = as the source gives it); brightness is null if the source can't be dimmed.
@@ -71,6 +73,7 @@ namespace SEScreens
         private const int AudioChunkBytes = 24000 * 2 / 10;
         // Metres: how far a screen's sound carries.
         private const float AudioRange = 40;
+        private const int HearingEveryFrames = 6;
 
         internal sealed class Feed
         {
@@ -93,6 +96,10 @@ namespace SEScreens
             public MyEntity3DSoundEmitter Sound;
             public VRage.Audio.IMySourceVoice TaggedVoice;
             public Vector3? ScreenCentre;
+            public Vector3 ScreenFront;
+            public bool CentreLoaded;
+            public Hearing Hearing;
+            public readonly SoundShaper Shaper = new SoundShaper();
             public long AudioBytes;
             public int AudioChunks;
             public readonly System.IO.MemoryStream PendingAudio = new System.IO.MemoryStream();
@@ -449,18 +456,37 @@ namespace SEScreens
         // A source's sound comes out of the screen, like a player's voice chat comes out of their character
         // (MyEntity3DSoundEmitter.PlaySound with raw buffers): 3D, fading out by AudioRange, at the game's volume.
         // Sent in 100 ms chunks; the voice holds at most 62 queued buffers. ScreenAudio keeps it positioned.
+        // ScreenHearing decides how much gets through (air, walls, helmet), checked a few times a second; while
+        // silent the voice keeps playing silence, so it picks up again in step.
         private static void PlayAudio(Feed f, IAudioSource audio)
         {
+            if (!f.CentreLoaded)
+            {
+                f.ScreenCentre = ScreenAudio.LocalCentre(f.Block, f.Panel, out f.ScreenFront);
+                f.CentreLoaded = true;
+            }
+            var world = f.Block.WorldMatrix;
+            Vector3D position = f.ScreenCentre.HasValue ? Vector3D.Transform(f.ScreenCentre.Value, world) : world.Translation;
+            if (frame % HearingEveryFrames == 0)
+            {
+                try
+                {
+                    f.Hearing = ScreenHearing.For(f.Block, position, Vector3D.TransformNormal(f.ScreenFront, world));
+                }
+                catch (Exception e)
+                {
+                    // Gas system or character state we can't read: play it as before.
+                    f.Hearing = Hearing.Clear;
+                    if (frame % 600 == 0)
+                        log($"Screen hearing failed: {e.Message}");
+                }
+                f.Shaper.TargetGain = ScreenHearing.Gain(f.Hearing);
+                f.Shaper.TargetCutoff = ScreenHearing.Cutoff(f.Hearing);
+            }
             byte[] pcm = audio.TakeAudio();
             if (pcm != null)
             {
-                if (f.Volume != 100)
-                    for (int i = 0; i + 1 < pcm.Length; i += 2)
-                    {
-                        int s = Math.Max(short.MinValue, Math.Min(short.MaxValue, (short)(pcm[i] | pcm[i + 1] << 8) * f.Volume / 100));
-                        pcm[i] = (byte)s;
-                        pcm[i + 1] = (byte)(s >> 8);
-                    }
+                f.Shaper.Apply(pcm, f.Volume / 100f);
                 f.PendingAudio.Write(pcm, 0, pcm.Length);
                 f.AudioBytes += pcm.Length;
             }
@@ -469,12 +495,9 @@ namespace SEScreens
                 if (f.PendingAudio.Length < AudioChunkBytes)
                     return;
                 f.Sound = new MyEntity3DSoundEmitter((MyEntity)f.Block);
-                f.ScreenCentre = ScreenAudio.LocalCentre(f.Block, f.Panel);
             }
             // Every frame: the emitter's position is stored relative to the camera.
-            f.Sound.SetPosition(f.ScreenCentre.HasValue
-                ? Vector3D.Transform(f.ScreenCentre.Value, f.Block.WorldMatrix)
-                : f.Block.WorldMatrix.Translation);
+            f.Sound.SetPosition(position);
             if (f.PendingAudio.Length < AudioChunkBytes)
                 return;
             ScreenAudio.EnsureCue(AudioRange);
@@ -554,6 +577,7 @@ namespace SEScreens
             Error = f.Source.Error,
             AudioSeconds = Math.Round(f.AudioBytes / 48000.0, 1),
             AudioChunks = f.AudioChunks,
+            Hearing = f.Source is IAudioSource ? ScreenHearing.Describe(f.Hearing) : null,
             Brightness = (f.Source as BrowserSource)?.Brightness,
             Volume = f.Volume,
             Input = !(f.Source is IInputSink) ? null

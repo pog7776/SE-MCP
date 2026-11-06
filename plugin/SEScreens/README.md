@@ -73,6 +73,10 @@ sections in the same Custom Data are left alone.
 ## Good to know
 
 - Sound plays from the screen's position in the world and fades out by about 40 m.
+- With the world's Realistic sound on, sound needs air between the screen and you, as the game's own sounds do. In
+  the same pressurized room you hear it clearly (a closed helmet muffles it). From another room of the same ship it
+  comes muffled through the wall, until you open the door between. Standing on the ship in vacuum, you only hear it
+  faintly through the hull. Out in space you don't hear it at all.
 - Some sites' video won't play, because the browser build has no H.264. YouTube works.
 - A page can't crash the game: each browser runs in its own process. A browser that crashes restarts after 10
   seconds.
