@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Sandbox.Game.Gui;
+using Sandbox.Game.Screens;
 using Sandbox.Game.World;
 using Sandbox.Graphics.GUI;
 using Sandbox.ModAPI;
 using VRage.Input;
+using VRage.Utils;
 using VRageMath;
 using IMyInput = VRage.Input.IMyInput;
 
@@ -14,7 +16,7 @@ namespace SEScreens
     // Cursor mode: use what screens show with the real mouse and keyboard, like an interaction mode.
     //
     // Tap Alt (pressed and released with no other key and no mouse movement, so holding it to look around is
-    // unchanged) or press the Menu key near a screen that shows a source you can use. A GUI screen of ours then takes
+    // unchanged) or press the Menu key, anywhere (cursor mode is meant for more than screens). A GUI screen of ours takes
     // focus, the way chat or the terminal does: the game stops reading the controls, the camera holds still and the
     // mouse cursor shows. The cursor's line from the camera finds the screen under it, which gets the mouse; clicking
     // a screen gives it the keyboard (the screen at the crosshair has it to start with). Clicking off every screen
@@ -65,16 +67,16 @@ namespace SEScreens
             capture = null;
         }
 
-        // Only near a screen you can use, so a tap elsewhere does nothing. The screen at the crosshair gets the keyboard.
+        // Anywhere: cursor mode is for more than screens. The screen at the crosshair, if any, gets the keyboard.
         private static void Enter()
         {
             var camera = MySector.MainCamera;
-            if (camera == null || !Screens.AnyUsableWithin(camera.Position, Reach))
+            if (camera == null)
                 return;
             var line = new LineD(camera.Position, camera.Position + (Vector3D)camera.ForwardVector * Reach);
             capture = new CaptureScreen(Nearest(line, out _));
             MyGuiSandbox.AddScreen(capture);
-            MyAPIGateway.Utilities?.ShowNotification("Cursor mode: click a screen to use it. Tap Alt or press Menu to go back", 3000);
+            MyAPIGateway.Utilities?.ShowNotification("Cursor mode (tap Alt to leave)", 1500);
         }
 
         // The nearest usable screen the line crosses, and the pixel of its source there.
@@ -185,6 +187,8 @@ namespace SEScreens
             private long lastClickAt = -DoubleClickMs;
             private Vector2I lastClickPixel;
             private int lastClickButton = -1, clicks;
+            // Frames left to hold the cursor on the crosshair: showing the cursor puts it back where it was last shown.
+            private int centreFrames = 3;
 
             public CaptureScreen(Screens.Feed target)
                 : base(new Vector2(0.5f, 0.5f), null, null)
@@ -205,13 +209,28 @@ namespace SEScreens
             {
                 var input = MyInput.Static;
                 var camera = MySector.MainCamera;
-                if (input == null || camera == null || !Screens.AnyUsableWithin(camera.Position, Reach * 2))
+                if (input == null || camera == null)
                 {
                     Leave();
                     return;
                 }
                 if (focus != null && !Screens.IsUsable(focus))
                     focus = null;
+                if (receivedFocusInThisUpdate)
+                {
+                    // Back from a dialog (or just opened): keys already down were pressed there, not here.
+                    input.GetPressedKeys(keys);
+                    held.Clear();
+                    foreach (var k in keys)
+                        if ((int)k >= 8 && k != PressToggle)
+                            held.Add(Generic(k));
+                }
+                if (centreFrames > 0)
+                {
+                    centreFrames--;
+                    var centre = input.GetMouseAreaSize() / 2;
+                    input.SetMousePosition((int)centre.X, (int)centre.Y);
+                }
                 input.GetPressedKeys(keys);
                 bool escape = focus == null && input.IsNewKeyPressed(MyKeys.Escape);
                 if (tap.Update(keys, input, mouseMoved: false) || input.IsNewKeyPressed(PressToggle) || escape)
@@ -238,6 +257,17 @@ namespace SEScreens
                 if (wheel != 0 && hover != null)
                     Sink(hover)?.MouseWheel(pixel.X, pixel.Y, wheel, mods);
                 Keyboard(input, mods);
+                if (focus?.Source is ITextPrompter prompter && prompter.TakeTextRequest() is TextRequest request)
+                    Prompt(request);
+            }
+
+            // The game's text dialog on top; this screen gets focus back when it closes.
+            private void Prompt(TextRequest request)
+            {
+                ReleaseKeys();
+                var dialog = new MyGuiScreenDialogText(request.Initial ?? "", MyStringId.GetOrCompute(request.Caption ?? "Text"));
+                dialog.OnConfirmed += text => request.Done?.Invoke(text);
+                MyGuiSandbox.AddScreen(dialog);
             }
 
             // True if a click off every screen left input mode.

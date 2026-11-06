@@ -525,6 +525,14 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
   - Hot reload: open screens must be closed in `Stop()`.
   - Our own HUD drawing only. Text HUD API (workshop 758597413) was considered and dropped.
 - **Authoring new apps at runtime** (opt-in, off by default): an endpoint takes C# for a screen app, compiles it with the game's own script compiler against the mod whitelist (as for PBs and mods), registers it under a versioned id, and reports compiler errors like `write_pb_script`. It runs code inside the game, so it's gated in config and local only. MCP Display should cover most needs first.
+- **Live screens: SEScreens** (started 2026-11-05; a standalone plugin in `plugin/SEScreens`, driven by the host's `mirror.*`/`browser.*` RPCs; see protocol.md). Client-local: other players see the idle card.
+  - ✅ Window mirror (GDI PrintWindow) and the test card, on our own textures sized to the screen (1024 px by default).
+  - ✅ Browser: Chromium (CefSharp.OffScreen) in a helper process per screen, frames through shared memory. YouTube plays.
+  - ✅ Sound from the screen itself, positioned in the world (the voice-chat path, our own cue so it pans and fades), from each screen of a multi-screen block.
+  - ✅ Cursor mode: tap Alt (no mouse movement) or press Menu, anywhere. The real mouse and keyboard go to the screen under the cursor (hit-tested against the screen mesh's UVs). Browser shortcuts (Ctrl+L address dialog, Alt+Left/Right, F5). Sources can ask for text.
+  - ✅ Screen Test app in the screen's app list (test card plus cursor cross, no RPC).
+  - Next: a Web Browser app in the app list (home page or address in CustomData, so a world remembers what its screens show without a second source of truth), page zoom, browser popups (dropdowns), and cursor mode for more than screens (e.g. a Build Vision-style block menu on right-click).
+  - Later: a terminal emulator on a screen (ConPTY), sharing a screen with other players who have the plugin (view-only by default, sound shared), a "generic monitor" (stream URLs, a virtual display, cast targets), a faster upload path, and higher-quality sound (only 24 kHz mono now).
 
 ## Testing
 

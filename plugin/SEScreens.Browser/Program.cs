@@ -147,6 +147,15 @@ namespace SEScreens.Browser
                         IsSystemKey = ((CefEventFlags)Int(parts, 2, 0) & CefEventFlags.AltDown) != 0,
                     });
                     break;
+                case "back":
+                    browser.Back();
+                    break;
+                case "forward":
+                    browser.Forward();
+                    break;
+                case "reload":
+                    browser.Reload();
+                    break;
                 case "focus": // focus on|off: caret and keyboard focus, as when the window is focused
                     host?.SetFocus(parts.Length > 1 && parts[1] == "on");
                     break;

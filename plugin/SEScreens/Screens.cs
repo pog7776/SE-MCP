@@ -71,6 +71,7 @@ namespace SEScreens
 
         internal sealed class Feed
         {
+            public string Script;
             public ScreenGeometry Geometry;
             public bool GeometryLoaded;
             public IMyTerminalBlock Block;
@@ -115,6 +116,33 @@ namespace SEScreens
         {
             log = logger ?? (_ => { });
             IsRunning = true;
+            AppDomain.CurrentDomain.SetData(AppHook, (Action<VRage.Game.ModAPI.Ingame.IMyCubeBlock, Sandbox.ModAPI.Ingame.IMyTextSurface, string>)RunApp);
+        }
+
+        // Where our screen apps find the live Screens (see ScreenTestScript).
+        public const string AppHook = "SEScreens.RunApp";
+
+        // An app of ours is on this surface: start its feed unless it's already running. Called every 10 ticks.
+        private static void RunApp(VRage.Game.ModAPI.Ingame.IMyCubeBlock block, Sandbox.ModAPI.Ingame.IMyTextSurface surface, string script)
+        {
+            if (!IsRunning || !(block is IMyTerminalBlock terminal) || !(block is IngameSurfaceProvider provider))
+                return;
+            int index = -1;
+            for (int i = 0; i < provider.SurfaceCount; i++)
+                if (provider.GetSurface(i) == surface)
+                    index = i;
+            if (index < 0 || (Feeds.TryGetValue((block.EntityId, index), out var f) && f.Script == script && !f.Source.Ended))
+                return;
+            try
+            {
+                if (script == ScreenTestScript.Id)
+                    Show(terminal, index, new SourceInfo { Kind = "testcard", Title = "Screen Test", Detail = "" },
+                        (w, h) => new WindowCapture(IntPtr.Zero, w, h, 30), 30, DefaultResolution, script);
+            }
+            catch (Exception e)
+            {
+                log($"Screen app {script} on '{terminal.CustomName}' screen {index}: {e.Message}");
+            }
         }
 
         // Every frame.
@@ -124,14 +152,14 @@ namespace SEScreens
                 return;
             if (frame++ % CheckScriptEveryFrames == 0)
                 EnsureScriptRegistered();
+            ScreenInput.Update();
             if (Feeds.Count == 0)
                 return;
-            ScreenInput.Update();
             List<(long, int)> ended = null;
             foreach (var pair in Feeds)
             {
                 var f = pair.Value;
-                if (f.Source.Ended || f.Block.Closed || f.Panel.ContentType != ContentType.SCRIPT || f.Panel.Script != MirrorScript.Id)
+                if (f.Source.Ended || f.Block.Closed || f.Panel.ContentType != ContentType.SCRIPT || f.Panel.Script != f.Script)
                 {
                     (ended ?? (ended = new List<(long, int)>())).Add(pair.Key);
                     continue;
@@ -161,7 +189,7 @@ namespace SEScreens
                     var f = Feeds[key];
                     if (f.Source.Error != null)
                         log($"Feed of '{f.Info.Title}' stopped: {f.Source.Error}");
-                    End(key, restore: !f.Block.Closed && f.Panel.Script == MirrorScript.Id);
+                    End(key, restore: !f.Block.Closed && f.Panel.Script == f.Script);
                 }
         }
 
@@ -173,7 +201,11 @@ namespace SEScreens
                 End(key, restore: true);
             var factory = MyTextSurfaceScriptFactory.Instance;
             if (factory != null && FactoryScripts?.GetValue(factory) is Dictionary<string, MyTextSurfaceScriptFactory.ScriptInfo> scripts)
+            {
                 scripts.Remove(MirrorScript.Id);
+                scripts.Remove(ScreenTestScript.Id);
+            }
+            AppDomain.CurrentDomain.SetData(AppHook, null);
             ScreenAudio.RemoveCue();
             IsRunning = false;
         }
@@ -239,12 +271,14 @@ namespace SEScreens
 
         public static bool BrowserAvailable => System.IO.File.Exists(BrowserSource.HelperPath());
 
-        // Shows any source on the block's screen (switching it to Window Mirror). create gets the texture size: the
+        // Shows any source on the block's screen (switching it to Window Mirror, or the given app). create gets the texture size: the
         // screen's aspect ratio with its long side = resolution (64-2048). Throws ArgumentException for a block or
         // surface that can't show it. Showing again on the same surface keeps what it showed before the first.
+        // script: the screen app the feed belongs to. Window Mirror by default; an app of ours (Screen Test) keeps its own.
         public static MirrorInfo Show(IMyTerminalBlock block, int surface, SourceInfo info, Func<int, int, IFrameSource> create,
-            int fps, int resolution = DefaultResolution)
+            int fps, int resolution = DefaultResolution, string script = null)
         {
+            script = script ?? MirrorScript.Id;
             if (!IsRunning)
                 throw new InvalidOperationException("Screens isn't running");
             var panel = Panel(block, surface);
@@ -266,7 +300,7 @@ namespace SEScreens
 
             EnsureScriptRegistered();
             panel.ContentType = ContentType.SCRIPT;
-            panel.Script = MirrorScript.Id;
+            panel.Script = script;
             string texture = $"SEScreens_{block.EntityId}_{surface}";
             MyRenderProxy.CreateGeneratedTexture(texture, size.X, size.Y, MyGeneratedTextureType.RGBA, 1, null, generateMipmaps: true, immediatelyReady: true);
             var f = new Feed
@@ -280,6 +314,7 @@ namespace SEScreens
                 PreviousContent = previousContent,
                 PreviousScript = previousScript,
                 Source = source,
+                Script = script,
             };
             Feeds[key] = f;
             return Describe(f);
@@ -386,7 +421,8 @@ namespace SEScreens
                 // Back on the game's own texture before ours goes. Forced: the panel's cache still thinks it's bound.
                 f.Panel.ChangeRenderTexture(f.Panel.Area, f.Panel.GetRenderTextureName(), isForced: true);
             MyRenderProxy.DestroyGeneratedTexture(f.Texture);
-            if (!restore || f.Block.Closed)
+            // A feed an app of ours started stays the player's choice: the app starts it again if it's still picked.
+            if (!restore || f.Block.Closed || f.Script != MirrorScript.Id)
                 return;
             // Back to what the screen showed before; a screen that was already on Window Mirror keeps its idle card.
             if (f.PreviousContent == ContentType.SCRIPT && f.PreviousScript == MirrorScript.Id)

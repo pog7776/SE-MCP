@@ -9,7 +9,7 @@ namespace SEScreens
     // A web page, rendered by the SEScreens.Browser helper (Chromium off screen, one process per screen) into
     // shared memory. A reader thread turns new frames into texture frames at the screen's fps.
     // Its sound comes back through the same shared memory (see TakeAudio), not out of the PC's speakers.
-    internal sealed class BrowserSource : IFrameSource, IAudioSource, IInputSink
+    internal sealed class BrowserSource : IFrameSource, IAudioSource, IInputSink, ITextPrompter
     {
         // Same layout as SEScreens.Browser's FrameMap.
         private const int SequenceOffset = 0, AudioWrittenOffset = 8, PixelsOffset = 64;
@@ -117,8 +117,52 @@ namespace SEScreens
         public void MouseButton(int x, int y, MouseButton button, bool down, int clicks, InputModifiers m) =>
             Send($"{(down ? "down" : "up")} {x} {y} {button.ToString().ToLowerInvariant()} {clicks} {Flags(m)}");
         public void MouseWheel(int x, int y, int delta, InputModifiers m) => Send($"wheel {x} {y} {delta} {Flags(m)}");
-        public void Key(int virtualKey, bool down, bool repeat, InputModifiers m) =>
+        public void Key(int virtualKey, bool down, bool repeat, InputModifiers m)
+        {
+            if (down && Shortcut(virtualKey, m))
+                return;
             Send($"key {(down ? "down" : "up")} {virtualKey} {Flags(m)}");
+        }
+
+        // What a browser window's own frame would do with these keys; off-screen Chromium has no frame.
+        // Ctrl+L or F6: the address dialog. Alt+Left/Right: back/forward. F5: reload.
+        private bool Shortcut(int vk, InputModifiers m)
+        {
+            bool ctrl = (m & InputModifiers.Control) != 0, alt = (m & InputModifiers.Alt) != 0;
+            if ((ctrl && vk == 0x4C) || vk == 0x75)
+                textRequest = new TextRequest { Caption = "Address", Initial = Url, Done = text => Navigate(NormaliseUrl(text)) };
+            else if (alt && vk == 0x25)
+                Send("back");
+            else if (alt && vk == 0x27)
+                Send("forward");
+            else if (vk == 0x74)
+                Send("reload");
+            else
+                return false;
+            return true;
+        }
+
+        private TextRequest textRequest;
+
+        public TextRequest TakeTextRequest()
+        {
+            var r = textRequest;
+            textRequest = null;
+            return r;
+        }
+
+        // An address as typed: a scheme is added when missing; anything that doesn't look like an address is a search.
+        public static string NormaliseUrl(string text)
+        {
+            text = (text ?? "").Trim();
+            if (text.Length == 0)
+                return "about:blank";
+            if (text.Contains("://") || text.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
+                return text;
+            if (!text.Contains(" ") && (text.Contains(".") || text.StartsWith("localhost", StringComparison.OrdinalIgnoreCase)))
+                return "https://" + text;
+            return "https://www.google.com/search?q=" + Uri.EscapeDataString(text);
+        }
         public void Char(char c, InputModifiers m) => Send($"char {(int)c} {Flags(m)}");
 
         // cef_event_flags_t: Shift 2, Control 4, Alt 8, left 16, middle 32, right 64.

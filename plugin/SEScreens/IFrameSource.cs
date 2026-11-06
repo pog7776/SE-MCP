@@ -57,6 +57,21 @@ namespace SEScreens
         void Char(char c, InputModifiers modifiers);
     }
 
+    // A source asking the player for text (a browser's address, say). ScreenInput shows the game's text dialog for
+    // it while that source has the keyboard, and calls Done with what they typed (not on cancel).
+    public sealed class TextRequest
+    {
+        public string Caption;
+        public string Initial;
+        public Action<string> Done;
+    }
+
+    public interface ITextPrompter
+    {
+        // Game thread, every frame while focused: a new request, or null.
+        TextRequest TakeTextRequest();
+    }
+
     // What a screen shows, for listings.
     public sealed class SourceInfo
     {
