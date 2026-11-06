@@ -8,9 +8,12 @@ namespace SEScreens
     // scripts that keep their own sections there are left alone):
     //
     //   [SEScreens]
-    //   home1=https://example.com
+    //   home0=https://example.com
+    //   brightness0=100
+    //   volume0=100
     //
-    // The number is the screen (surface) index; a plain "home" applies to every screen of the block. The world
+    // The number is the screen (surface) index; a plain "home" applies to every screen of the block. Player-facing
+    // documentation of the keys is in README.md. The world
     // saves it and it syncs like any CustomData, so the world stays the one record of what its screens show.
     internal static class ScreenSettings
     {
