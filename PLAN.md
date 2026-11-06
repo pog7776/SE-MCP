@@ -531,8 +531,8 @@ Background: screen "apps" are text surface scripts (TSS). Each is a C# class tag
   - ✅ Sound from the screen itself, positioned in the world (the voice-chat path, our own cue so it pans and fades), from each screen of a multi-screen block.
   - ✅ Cursor mode: tap Alt (no mouse movement) or press Menu, anywhere. The real mouse and keyboard go to the screen under the cursor (hit-tested against the screen mesh's UVs). Browser shortcuts (Ctrl+L address dialog, Alt+Left/Right, F5). Sources can ask for text.
   - ✅ Screen Test app in the screen's app list (test card plus cursor cross, no RPC).
-  - ✅ Web Browser app in the app list: the home page is in the block's CustomData (`[SEScreens]` `home<surface>=`), so the world is the one record of what its screens show.
-  - Next: page zoom, browser popups (dropdowns), and cursor mode for more than screens (e.g. a Build Vision-style block menu on right-click).
+  - ✅ Web Browser app in the app list: the home page is in the block's CustomData (`[SEScreens]` `home<surface>=`), so the world is the one record of what its screens show. `brightness<surface>=` and `volume<surface>=` (percent) sit beside it. Links to new tabs open on the same screen.
+  - Next: page zoom, dropdowns (Chromium's own popup widgets), and cursor mode for more than screens (e.g. a Build Vision-style block menu on right-click).
   - Later: a terminal emulator on a screen (ConPTY), sharing a screen with other players who have the plugin (view-only by default, sound shared), a "generic monitor" (stream URLs, a virtual display, cast targets), a faster upload path, and higher-quality sound (only 24 kHz mono now).
 
 ## Testing

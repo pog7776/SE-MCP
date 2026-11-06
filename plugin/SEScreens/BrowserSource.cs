@@ -25,6 +25,8 @@ namespace SEScreens
         public string Url { get; private set; }
         // Where Alt+Home goes: the page it opened with, or the Web Browser app's home from CustomData.
         public string Home { get; set; }
+        // Percent, 0..200 (above 100 lifts dark pages; white stays white).
+        public int Brightness { get; set; } = 100;
 
         private readonly SourceInfo info;
         private readonly Process process;
@@ -239,11 +241,21 @@ namespace SEScreens
         {
             long last = 0;
             int pixelBytes = Width * Height * 4;
+            int levelsFor = -1;
+            var levels = new byte[256];
             try
             {
                 while (!stop && !process.HasExited)
                 {
                     long seq = view.ReadInt64(SequenceOffset);
+                    int brightness = Brightness;
+                    if (brightness != levelsFor)
+                    {
+                        for (int v = 0; v < 256; v++)
+                            levels[v] = (byte)Math.Min(255, v * brightness / 100);
+                        levelsFor = brightness;
+                        last = -1; // redraw the page as it is at the new level
+                    }
                     if (seq != last && (seq & 1) == 0)
                     {
                         var frame = new byte[FrameBuffer.Bytes(Width, Height)];
@@ -254,8 +266,9 @@ namespace SEScreens
                             for (int i = 0; i < pixelBytes; i += 4)
                             {
                                 byte blue = frame[i];
-                                frame[i] = frame[i + 2];
-                                frame[i + 2] = blue;
+                                frame[i] = levels[frame[i + 2]];
+                                frame[i + 1] = levels[frame[i + 1]];
+                                frame[i + 2] = levels[blue];
                                 frame[i + 3] = 0; // metalness: keep the screen glowing
                             }
                             Interlocked.Exchange(ref latest, frame);

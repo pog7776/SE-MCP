@@ -67,6 +67,7 @@ namespace SEScreens.Browser
             browser = new ChromiumWebBrowser(url, browserSettings, automaticallyCreateBrowser: false);
             browser.Size = new System.Drawing.Size(width, height);
             browser.Paint += OnPaint;
+            browser.LifeSpanHandler = new PopupsInPlace();
             if (audio != "system")
                 browser.AudioHandler = new AudioToRing(view, FrameMap.AudioRing(width, height), Send);
             browser.LoadingStateChanged += (_, e) =>
@@ -367,5 +368,20 @@ namespace SEScreens.Browser
     internal sealed class NoRelaunchWindows : CefSharp.Handler.BrowserProcessHandler
     {
         protected override bool OnAlreadyRunningAppRelaunch(System.Collections.Generic.IReadOnlyDictionary<string, string> commandLine, string currentDirectory) => true;
+    }
+
+    // A link to a new tab or window (target=_blank, window.open) would open a desktop window, since an off-screen
+    // browser's popups get real ones by default. A screen has one page, so the link opens there instead.
+    internal sealed class PopupsInPlace : CefSharp.Handler.LifeSpanHandler
+    {
+        protected override bool OnBeforePopup(IWebBrowser chromiumWebBrowser, IBrowser browser, IFrame frame, string targetUrl,
+            string targetFrameName, WindowOpenDisposition targetDisposition, bool userGesture, IPopupFeatures popupFeatures,
+            IWindowInfo windowInfo, IBrowserSettings browserSettings, ref bool noJavascriptAccess, out IWebBrowser newBrowser)
+        {
+            newBrowser = null;
+            if (!string.IsNullOrEmpty(targetUrl) && targetUrl != "about:blank")
+                browser.MainFrame.LoadUrl(targetUrl);
+            return true;
+        }
     }
 }

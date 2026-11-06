@@ -49,6 +49,9 @@ namespace SEScreens
         public string AudioState;
         // Screen input: null if the source takes none, else whether it can (its screen mesh found) and is in use.
         public string Input;
+        // Percents (100 = as the source gives it); brightness is null if the source can't be dimmed.
+        public int? Brightness;
+        public int Volume;
     }
 
     // Live content on LCDs. A screen showing a source is switched to MirrorScript (so the game draws nothing of its
@@ -73,6 +76,7 @@ namespace SEScreens
         {
             public string Script;
             public string Home; // Web Browser: the home page it last followed from CustomData
+            public int Volume = 100; // percent, from CustomData for our apps
             public ScreenGeometry Geometry;
             public bool GeometryLoaded;
             public IMyTerminalBlock Block;
@@ -140,7 +144,7 @@ namespace SEScreens
             if (Feeds.TryGetValue(key, out var f) && f.Script == script && !f.Source.Ended)
             {
                 if (script == WebBrowserScript.Id)
-                    FollowHome(f);
+                    FollowSettings(f);
                 return;
             }
             // A source that failed or ended (a browser that crashed) is retried, but not every 10 ticks.
@@ -167,10 +171,14 @@ namespace SEScreens
                         home = DefaultHome;
                         ScreenSettings.Add(terminal, HomeKey, index, home); // so it's there to find and edit
                     }
+                    foreach (string setting in new[] { BrightnessKey, VolumeKey })
+                        if (ScreenSettings.Get(terminal, setting, index) == null)
+                            ScreenSettings.Add(terminal, setting, index, "100");
                     home = BrowserSource.NormaliseUrl(home);
                     var info = new SourceInfo { Kind = "browser", Title = "Web Browser", Detail = home };
                     Show(terminal, index, info, (w, h) => new BrowserSource(info, home, w, h, 30, $"{block.EntityId}-{index}"), 30, DefaultResolution, script);
                     Feeds[key].Home = home;
+                    FollowSettings(Feeds[key]);
                 }
             }
             catch (Exception e)
@@ -179,15 +187,22 @@ namespace SEScreens
             }
         }
 
-        public const string HomeKey = "home", DefaultHome = "https://www.google.com";
+        public const string HomeKey = "home", DefaultHome = "https://www.google.com", BrightnessKey = "brightness", VolumeKey = "volume";
+
+        // "60", "60%" or missing (100).
+        private static int Percent(string value) =>
+            int.TryParse(value?.TrimEnd('%').Trim(), out int p) ? Math.Max(0, Math.Min(200, p)) : 100;
         private const int AppRetryFrames = 600;
         private static readonly Dictionary<(long, int), int> AppRetry = new Dictionary<(long, int), int>();
 
-        // The home page in CustomData changed: go there, and remember it as the browser's home (Alt+Home).
-        private static void FollowHome(Feed f)
+        // Web Browser settings from CustomData, followed as they're edited. brightness and volume are percents
+        // (0..200, default 100). A changed home page is gone to, and becomes the browser's home (Alt+Home).
+        private static void FollowSettings(Feed f)
         {
             if (!(f.Source is BrowserSource browser))
                 return;
+            browser.Brightness = Percent(ScreenSettings.Get(f.Block, BrightnessKey, f.Surface));
+            f.Volume = Percent(ScreenSettings.Get(f.Block, VolumeKey, f.Surface));
             string home = ScreenSettings.Get(f.Block, HomeKey, f.Surface);
             if (string.IsNullOrWhiteSpace(home))
                 return;
@@ -439,6 +454,13 @@ namespace SEScreens
             byte[] pcm = audio.TakeAudio();
             if (pcm != null)
             {
+                if (f.Volume != 100)
+                    for (int i = 0; i + 1 < pcm.Length; i += 2)
+                    {
+                        int s = Math.Max(short.MinValue, Math.Min(short.MaxValue, (short)(pcm[i] | pcm[i + 1] << 8) * f.Volume / 100));
+                        pcm[i] = (byte)s;
+                        pcm[i + 1] = (byte)(s >> 8);
+                    }
                 f.PendingAudio.Write(pcm, 0, pcm.Length);
                 f.AudioBytes += pcm.Length;
             }
@@ -532,6 +554,8 @@ namespace SEScreens
             Error = f.Source.Error,
             AudioSeconds = Math.Round(f.AudioBytes / 48000.0, 1),
             AudioChunks = f.AudioChunks,
+            Brightness = (f.Source as BrowserSource)?.Brightness,
+            Volume = f.Volume,
             Input = !(f.Source is IInputSink) ? null
                 : ScreenInput.Focused == f ? "in use"
                 : Geometry(f) == null ? "no screen mesh" : "ready",
