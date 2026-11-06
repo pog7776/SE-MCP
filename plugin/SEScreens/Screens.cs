@@ -72,6 +72,7 @@ namespace SEScreens
         internal sealed class Feed
         {
             public string Script;
+            public string Home; // Web Browser: the home page it last followed from CustomData
             public ScreenGeometry Geometry;
             public bool GeometryLoaded;
             public IMyTerminalBlock Block;
@@ -103,6 +104,8 @@ namespace SEScreens
         private static int frame;
         private static Action<string> log = _ => { };
 
+        internal static void Log(string message) => log(message);
+
         public static bool IsRunning { get; private set; }
 
         // A stand-in "window" of grey and colour bars at known levels, for checking how screens show colour.
@@ -131,18 +134,70 @@ namespace SEScreens
             for (int i = 0; i < provider.SurfaceCount; i++)
                 if (provider.GetSurface(i) == surface)
                     index = i;
-            if (index < 0 || (Feeds.TryGetValue((block.EntityId, index), out var f) && f.Script == script && !f.Source.Ended))
+            if (index < 0)
                 return;
+            var key = (block.EntityId, index);
+            if (Feeds.TryGetValue(key, out var f) && f.Script == script && !f.Source.Ended)
+            {
+                if (script == WebBrowserScript.Id)
+                    FollowHome(f);
+                return;
+            }
+            // A source that failed or ended (a browser that crashed) is retried, but not every 10 ticks.
+            if (AppRetry.TryGetValue(key, out int after) && frame < after)
+                return;
+            AppRetry[key] = frame + AppRetryFrames;
             try
             {
                 if (script == ScreenTestScript.Id)
+                {
                     Show(terminal, index, new SourceInfo { Kind = "testcard", Title = "Screen Test", Detail = "" },
                         (w, h) => new WindowCapture(IntPtr.Zero, w, h, 30), 30, DefaultResolution, script);
+                }
+                else if (script == WebBrowserScript.Id)
+                {
+                    if (!BrowserAvailable)
+                    {
+                        log($"Web Browser on '{terminal.CustomName}': the browser helper isn't installed");
+                        return;
+                    }
+                    string home = ScreenSettings.Get(terminal, HomeKey, index);
+                    if (string.IsNullOrWhiteSpace(home))
+                    {
+                        home = DefaultHome;
+                        ScreenSettings.Add(terminal, HomeKey, index, home); // so it's there to find and edit
+                    }
+                    home = BrowserSource.NormaliseUrl(home);
+                    var info = new SourceInfo { Kind = "browser", Title = "Web Browser", Detail = home };
+                    Show(terminal, index, info, (w, h) => new BrowserSource(info, home, w, h, 30), 30, DefaultResolution, script);
+                    Feeds[key].Home = home;
+                }
             }
             catch (Exception e)
             {
                 log($"Screen app {script} on '{terminal.CustomName}' screen {index}: {e.Message}");
             }
+        }
+
+        public const string HomeKey = "home", DefaultHome = "https://www.google.com";
+        private const int AppRetryFrames = 600;
+        private static readonly Dictionary<(long, int), int> AppRetry = new Dictionary<(long, int), int>();
+
+        // The home page in CustomData changed: go there, and remember it as the browser's home (Alt+Home).
+        private static void FollowHome(Feed f)
+        {
+            if (!(f.Source is BrowserSource browser))
+                return;
+            string home = ScreenSettings.Get(f.Block, HomeKey, f.Surface);
+            if (string.IsNullOrWhiteSpace(home))
+                return;
+            home = BrowserSource.NormaliseUrl(home);
+            browser.Home = home;
+            if (home == f.Home)
+                return;
+            f.Home = home;
+            browser.Navigate(home);
+            f.Info.Detail = home;
         }
 
         // Every frame.
@@ -204,6 +259,7 @@ namespace SEScreens
             {
                 scripts.Remove(MirrorScript.Id);
                 scripts.Remove(ScreenTestScript.Id);
+                scripts.Remove(WebBrowserScript.Id);
             }
             AppDomain.CurrentDomain.SetData(AppHook, null);
             ScreenAudio.RemoveCue();
@@ -415,6 +471,9 @@ namespace SEScreens
         {
             var f = Feeds[key];
             Feeds.Remove(key);
+            // Only a source that died waits before its app starts it again.
+            if (!f.Source.Ended)
+                AppRetry.Remove(key);
             f.Source.Dispose();
             f.Sound?.StopSound(forced: true, cleanUp: true, cleanupSound: true);
             if (!f.Block.Closed)

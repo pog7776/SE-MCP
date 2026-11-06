@@ -67,6 +67,9 @@ namespace SEScreens
             capture = null;
         }
 
+        // Leaves cursor mode, as the leave keys do (for CursorMode.Leave).
+        public static void Leave() => capture?.Leave();
+
         // Anywhere: cursor mode is for more than screens. The screen at the crosshair, if any, gets the keyboard.
         private static void Enter()
         {
@@ -130,7 +133,7 @@ namespace SEScreens
         }
 
         // A tap: Alt pressed and released within TapMs with no other key, button or (in game) mouse movement between.
-        private sealed class TapDetector
+        internal sealed class TapDetector
         {
             private readonly Stopwatch held = new Stopwatch();
             private bool down, spoiled;
@@ -365,7 +368,7 @@ namespace SEScreens
                     sink.Char('\r', mods);
             }
 
-            private void Leave()
+            public void Leave()
             {
                 Release();
                 CloseScreen();

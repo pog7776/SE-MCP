@@ -23,6 +23,8 @@ namespace SEScreens
         public string Error { get; private set; }
         public int Frames { get; private set; }
         public string Url { get; private set; }
+        // Where Alt+Home goes: the page it opened with, or the Web Browser app's home from CustomData.
+        public string Home { get; set; }
 
         private readonly SourceInfo info;
         private readonly Process process;
@@ -40,6 +42,7 @@ namespace SEScreens
             Width = width;
             Height = height;
             Url = url;
+            Home = url;
             intervalMs = 1000 / Math.Max(1, fps);
 
             string exe = HelperPath();
@@ -125,7 +128,7 @@ namespace SEScreens
         }
 
         // What a browser window's own frame would do with these keys; off-screen Chromium has no frame.
-        // Ctrl+L or F6: the address dialog. Alt+Left/Right: back/forward. F5: reload.
+        // Ctrl+L or F6: the address dialog. Alt+Left/Right: back/forward. Alt+Home: home. F5: reload.
         private bool Shortcut(int vk, InputModifiers m)
         {
             bool ctrl = (m & InputModifiers.Control) != 0, alt = (m & InputModifiers.Alt) != 0;
@@ -135,6 +138,8 @@ namespace SEScreens
                 Send("back");
             else if (alt && vk == 0x27)
                 Send("forward");
+            else if (alt && vk == 0x24)
+                Navigate(Home);
             else if (vk == 0x74)
                 Send("reload");
             else
